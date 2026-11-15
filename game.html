@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Our Flappy Game</title>
+<style>
+  body { margin: 0; background: #222; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; color: white; }
+  canvas { background: #7ec8f0; margin-top: 20px; border-radius: 8px; }
+  #brain { margin-top: 10px; font-size: 18px; text-align: center; line-height: 1.6; }
+  #brain b { color: #ffd84d; }
+</style>
+</head>
+<body>
+
+<canvas id="screen" width="400" height="600"></canvas>
+
+<!-- This box shows how hard the computer is working -->
+<div id="brain"></div>
+
+<script>
+// ============================================================
+//  STEP 1: A bird that falls... and flaps!
+//  Try changing these numbers and refresh the page to see what happens.
+// ============================================================
+
+let GRAVITY    = 0.4;   // how hard the bird gets pulled down
+let FLAP_POWER = -7;    // how high one flap pushes you (negative = UP)
+let BIRD_SIZE  = 40;    // how big the bird is
+
+// ------------------------------------------------------------
+
+const screen = document.getElementById("screen");
+const pen = screen.getContext("2d");   // the "pen" draws on the screen
+
+// Our bird. The computer remembers where it is and how fast it's moving.
+const bird = {
+  x: 100,
+  y: 300,
+  speed: 0
+};
+
+// Counters to show off how hard the computer is working
+let picturesDrawn = 0;
+let mathProblems = 0;
+const startTime = Date.now();
+
+// When you press SPACE or click, the bird flaps!
+function flap() {
+  bird.speed = FLAP_POWER;
+}
+document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); flap(); } });
+screen.addEventListener("mousedown", flap);
+screen.addEventListener("touchstart", e => { e.preventDefault(); flap(); });
+
+// This runs about 60 times EVERY SECOND.
+function gameLoop() {
+  // 1. Move the bird
+  bird.speed = bird.speed + GRAVITY;   // gravity makes us fall faster and faster
+  bird.y = bird.y + bird.speed;        // move by our speed
+  mathProblems += 2;
+
+  // 2. Don't fall off the bottom or fly off the top
+  if (bird.y > screen.height - BIRD_SIZE / 2) { bird.y = screen.height - BIRD_SIZE / 2; bird.speed = 0; }
+  if (bird.y < BIRD_SIZE / 2)                 { bird.y = BIRD_SIZE / 2;                 bird.speed = 0; }
+  mathProblems += 4;
+
+  // 3. Wipe the screen clean and draw everything again
+  pen.clearRect(0, 0, screen.width, screen.height);
+
+  // The bird (just a yellow circle for now — your drawing goes here in Step 2!)
+  pen.fillStyle = "#ffd84d";
+  pen.beginPath();
+  pen.arc(bird.x, bird.y, BIRD_SIZE / 2, 0, Math.PI * 2);
+  pen.fill();
+  // an eye
+  pen.fillStyle = "black";
+  pen.beginPath();
+  pen.arc(bird.x + 8, bird.y - 6, 4, 0, Math.PI * 2);
+  pen.fill();
+
+  // Every pixel on the screen has to be colored in, every single frame
+  picturesDrawn++;
+  const pixelsColored = picturesDrawn * screen.width * screen.height;
+
+  const seconds = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+  document.getElementById("brain").innerHTML =
+    `🧠 The computer has drawn <b>${picturesDrawn.toLocaleString()}</b> pictures so far ` +
+    `(about <b>${Math.round(picturesDrawn / seconds)}</b> every second!)<br>` +
+    `🎨 It has colored in <b>${pixelsColored.toLocaleString()}</b> dots on the screen<br>` +
+    `➗ It has solved <b>${mathProblems.toLocaleString()}</b> math problems just to move the bird`;
+
+  // 4. Do it all again, super fast
+  requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+</body>
+</html>
