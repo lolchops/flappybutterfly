@@ -25,7 +25,11 @@
 
 let GRAVITY    = 0.4;   // how hard the bird gets pulled down
 let FLAP_POWER = -7;    // how high one flap pushes you (negative = UP)
-let BIRD_SIZE  = 40;    // how big the bird is
+let BIRD_SIZE  = 50;    // how big the butterfly is
+
+// STEP 2: Her drawing! (cut out from the photo and saved in the assets folder)
+const butterfly = new Image();
+butterfly.src = "assets/butterfly.png";
 
 // ------------------------------------------------------------
 
@@ -67,16 +71,16 @@ function gameLoop() {
   // 3. Wipe the screen clean and draw everything again
   pen.clearRect(0, 0, screen.width, screen.height);
 
-  // The bird (just a yellow circle for now — your drawing goes here in Step 2!)
-  pen.fillStyle = "#ffd84d";
-  pen.beginPath();
-  pen.arc(bird.x, bird.y, BIRD_SIZE / 2, 0, Math.PI * 2);
-  pen.fill();
-  // an eye
-  pen.fillStyle = "black";
-  pen.beginPath();
-  pen.arc(bird.x + 8, bird.y - 6, 4, 0, Math.PI * 2);
-  pen.fill();
+  // Our hero: the butterfly she drew!
+  // It tips up when flying up, and nose-down when falling.
+  const tilt = Math.max(-0.5, Math.min(0.8, bird.speed * 0.06));
+  const w = BIRD_SIZE * 1.4;
+  const h = w * butterfly.height / butterfly.width;
+  pen.save();
+  pen.translate(bird.x, bird.y);
+  pen.rotate(tilt);
+  if (butterfly.complete) pen.drawImage(butterfly, -w / 2, -h / 2, w, h);
+  pen.restore();
 
   // Every pixel on the screen has to be colored in, every single frame
   picturesDrawn++;
