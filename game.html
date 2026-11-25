@@ -25,11 +25,17 @@
 
 let GRAVITY    = 0.4;   // how hard the bird gets pulled down
 let FLAP_POWER = -7;    // how high one flap pushes you (negative = UP)
-let BIRD_SIZE  = 50;    // how big the butterfly is
+let BIRD_SIZE  = 70;    // how big the butterfly is
+let WING_FLAP  = 0.75;  // how far the wings fold on each flap (0 = not at all, 1 = all the way)
 
-// STEP 2: Her drawing! (cut out from the photo and saved in the assets folder)
-const butterfly = new Image();
-butterfly.src = "assets/butterfly.png";
+// STEP 2: Her drawing! The computer cut it into two pieces,
+// the wings and the body, so the wings can move by themselves.
+const wings = new Image();
+wings.src = "assets/butterfly-wings.png";
+const body = new Image();
+body.src = "assets/butterfly-body.png";
+let wingTimer = 0;      // counts down while the wings are doing a flap
+let clock = 0;          // counts every picture, used for a gentle flutter
 
 // ------------------------------------------------------------
 
@@ -51,6 +57,7 @@ const startTime = Date.now();
 // When you press SPACE or click, the bird flaps!
 function flap() {
   bird.speed = FLAP_POWER;
+  wingTimer = 12;   // one wing flap lasts 12 pictures (that's 1/5 of a second!)
 }
 document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); flap(); } });
 screen.addEventListener("mousedown", flap);
@@ -75,11 +82,27 @@ function gameLoop() {
   // It tips up when flying up, and nose-down when falling.
   const tilt = Math.max(-0.5, Math.min(0.8, bird.speed * 0.06));
   const w = BIRD_SIZE * 1.4;
-  const h = w * butterfly.height / butterfly.width;
+  const h = w * body.height / body.width;
+
+  // How open are the wings right now? (1 = wide open)
+  clock++;
+  let wingOpen = 1 - 0.1 * (0.5 + 0.5 * Math.sin(clock * 0.2));   // gentle flutter
+  if (wingTimer > 0) {
+    wingOpen = 1 - WING_FLAP * Math.sin(Math.PI * wingTimer / 12); // big flap: fold in, then back out
+    wingTimer--;
+  }
+  mathProblems += 3;
+
   pen.save();
   pen.translate(bird.x, bird.y);
   pen.rotate(tilt);
-  if (butterfly.complete) pen.drawImage(butterfly, -w / 2, -h / 2, w, h);
+  if (wings.complete) {
+    pen.save();
+    pen.scale(1, wingOpen);                       // squish the wings toward the body
+    pen.drawImage(wings, -w / 2, -h / 2, w, h);
+    pen.restore();
+  }
+  if (body.complete) pen.drawImage(body, -w / 2, -h / 2, w, h);   // body goes on top
   pen.restore();
 
   // Every pixel on the screen has to be colored in, every single frame
