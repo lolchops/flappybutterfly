@@ -5,7 +5,7 @@
 <title>Our Flappy Game</title>
 <style>
   body { margin: 0; background: #222; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; color: white; }
-  canvas { background: #7ec8f0; margin-top: 20px; border-radius: 8px; }
+  canvas { background: #7ec8f0; margin-top: 20px; border-radius: 8px; touch-action: none; }
   #brain { margin-top: 10px; font-size: 18px; text-align: center; line-height: 1.6; }
   #brain b { color: #ffd84d; }
 </style>
@@ -19,145 +19,305 @@
 
 <script>
 // ============================================================
-//  STEP 1: A bird that falls... and flaps!
-//  Try changing these numbers and refresh the page to see what happens.
+//  KNOBS TO PLAY WITH!
+//  Change a number, save, and refresh the page to see what happens.
 // ============================================================
 
-let GRAVITY    = 0.4;   // how hard the bird gets pulled down
-let FLAP_POWER = -7;    // how high one flap pushes you (negative = UP)
-let BIRD_SIZE  = 70;    // how big the butterfly is
-let WING_FLAP  = 0.75;  // how far the wings fold on each flap (0 = not at all, 1 = all the way)
+let GRAVITY        = 0.4;  // how hard the butterfly gets pulled down
+let FLAP_POWER     = -7;   // how high one flap pushes you (negative = UP)
+let BIRD_SIZE      = 70;   // how big the butterfly is
+let WING_FLAP      = 0.75; // how far the wings fold on each flap (0 to 1)
 
-// STEP 2: Her drawing! The computer cut it into two pieces,
-// the wings and the body, so the wings can move by themselves.
-const wings = new Image();
-wings.src = "assets/butterfly-wings.png";
-const body = new Image();
-body.src = "assets/butterfly-body.png";
-let wingTimer = 0;      // counts down while the wings are doing a flap
-let clock = 0;          // counts every picture, used for a gentle flutter
+let FLOWER_SIZE    = 120;  // how wide the flowers are
+let GAP            = 200;  // space between the top and bottom flowers (smaller = harder!)
+let FLOWER_SPEED   = 2.5;  // how fast the flowers slide by
+let FLOWER_SPACING = 240;  // distance from one pair of flowers to the next
 
-// Blinking! Where her eyes are in the drawing (measured by the computer, in dots)
+// ============================================================
+//  STEP 2: Her drawings!
+// ============================================================
+
+function picture(file) { const img = new Image(); img.src = "assets/" + file; return img; }
+
+// The butterfly, cut into two pieces so the wings can move by themselves
+const wings = picture("butterfly-wings.png");
+const body  = picture("butterfly-body.png");
+
+// Where her butterfly's eyes are in the drawing (measured by the computer, in dots)
 const EYES = [
   { x: 416, y: 156, rx: 37, ry: 40 },   // left eye
   { x: 525, y: 179, rx: 41, ry: 31 }    // right eye
 ];
 const DRAWING_W = 600, DRAWING_H = 422;
 const LID_COLOR = "rgb(109,103,90)";    // same gray she colored the head
-let nextBlink = 120;    // pictures until the next blink
-let blinkTimer = 0;
 
-// ------------------------------------------------------------
+// STEP 3: The flower obstacles. The computer measured where each
+// flower's head and stem are, so it knows when the butterfly bumps one.
+// (topOnly: true means it only hangs from the top, like the watering can will)
+const OBSTACLES = [
+  { img: picture("flower-red.png"),    w: 300, h: 430, stemX0: 79, stemX1: 188, headBottom: 266 },
+  { img: picture("flower-purple.png"), w: 300, h: 396, stemX0: 71, stemX1: 158, headBottom: 259 },
+  { img: picture("flower-orange.png"), w: 300, h: 563, stemX0: 52, stemX1: 197, headBottom: 270 },
+];
+
+// ============================================================
 
 const screen = document.getElementById("screen");
 const pen = screen.getContext("2d");   // the "pen" draws on the screen
+const W = screen.width, H = screen.height;
 
-// Our bird. The computer remembers where it is and how fast it's moving.
-const bird = {
-  x: 100,
-  y: 300,
-  speed: 0
-};
+// The butterfly. The computer remembers where it is and how fast it's moving.
+const bird = { x: 110, y: 300, speed: 0 };
+
+let mode = "ready";       // "ready" (waiting to start), "playing", or "over"
+let flowers = [];         // the flowers on the screen right now
+let score = 0;
+let best = 0;
+try { best = Number(localStorage.getItem("flappy-best")) || 0; } catch (e) {}
+let overTime = 0;
+
+let wingTimer = 0, clock = 0, nextBlink = 120, blinkTimer = 0;
 
 // Counters to show off how hard the computer is working
-let picturesDrawn = 0;
-let mathProblems = 0;
+let picturesDrawn = 0, mathProblems = 0, crashChecks = 0;
 const startTime = Date.now();
 
-// When you press SPACE or click, the bird flaps!
-function flap() {
+// ------------------------------------------------------------
+//  Pressing SPACE, clicking, or tapping
+// ------------------------------------------------------------
+function press() {
+  if (mode === "ready") { mode = "playing"; }
+  if (mode === "over") {
+    if (clock - overTime < 40) return;   // tiny pause so you don't restart by accident
+    restart();
+    return;
+  }
   bird.speed = FLAP_POWER;
-  wingTimer = 12;   // one wing flap lasts 12 pictures (that's 1/5 of a second!)
+  wingTimer = 12;   // one wing flap lasts 12 pictures (1/5 of a second!)
 }
-document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); flap(); } });
-screen.addEventListener("mousedown", flap);
-screen.addEventListener("touchstart", e => { e.preventDefault(); flap(); });
+document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); press(); } });
+screen.addEventListener("mousedown", press);
+screen.addEventListener("touchstart", e => { e.preventDefault(); press(); });
 
-// This runs about 60 times EVERY SECOND.
-function gameLoop() {
-  // 1. Move the bird
-  bird.speed = bird.speed + GRAVITY;   // gravity makes us fall faster and faster
-  bird.y = bird.y + bird.speed;        // move by our speed
-  mathProblems += 2;
+function restart() {
+  bird.y = 300; bird.speed = 0;
+  flowers = []; score = 0;
+  mode = "ready";
+}
 
-  // 2. Don't fall off the bottom or fly off the top
-  if (bird.y > screen.height - BIRD_SIZE / 2) { bird.y = screen.height - BIRD_SIZE / 2; bird.speed = 0; }
-  if (bird.y < BIRD_SIZE / 2)                 { bird.y = BIRD_SIZE / 2;                 bird.speed = 0; }
-  mathProblems += 4;
+function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
-  // 3. Wipe the screen clean and draw everything again
-  pen.clearRect(0, 0, screen.width, screen.height);
+function addFlowers() {
+  const margin = 70;
+  const gapMiddle = margin + GAP / 2 + Math.random() * (H - 2 * margin - GAP);
+  flowers.push({
+    x: W,
+    gapTop: gapMiddle - GAP / 2,
+    gapBottom: gapMiddle + GAP / 2,
+    top: pick(OBSTACLES),
+    bottom: pick(OBSTACLES.filter(o => !o.topOnly)),
+    passed: false
+  });
+}
 
-  // Our hero: the butterfly she drew!
-  // It tips up when flying up, and nose-down when falling.
-  const tilt = Math.max(-0.5, Math.min(0.8, bird.speed * 0.06));
+// ------------------------------------------------------------
+//  Did the butterfly bump this flower?
+//  (lx, ly) is the butterfly's spot measured from the flower's head
+// ------------------------------------------------------------
+function bumps(o, lx, ly, r) {
+  crashChecks++;
+  mathProblems += 12;
+  const s = FLOWER_SIZE / o.w;
+  // the flower head is (about) an oval
+  const cx = o.w / 2 * s, cy = o.headBottom / 2 * s;
+  const rx = o.w / 2 * s * 0.85, ry = o.headBottom / 2 * s * 0.85;
+  if (((lx - cx) / (rx + r)) ** 2 + ((ly - cy) / (ry + r)) ** 2 < 1) return true;
+  // the stem is a long rectangle
+  const nearX = Math.max(o.stemX0 * s, Math.min(lx, o.stemX1 * s));
+  const nearY = Math.max(cy, ly);
+  return (lx - nearX) ** 2 + (ly - nearY) ** 2 < r * r;
+}
+
+// ------------------------------------------------------------
+//  Move everything one tiny step (60 times every second)
+// ------------------------------------------------------------
+function update() {
+  clock++;
+  const r = BIRD_SIZE * 0.3;   // the butterfly's "bump circle"
+
+  if (mode === "ready") {
+    bird.y = 300 + Math.sin(clock * 0.08) * 12;   // float gently while waiting
+    return;
+  }
+  if (mode === "over") return;
+
+  // 1. Gravity pulls the butterfly down
+  bird.speed += GRAVITY;
+  bird.y += bird.speed;
+  if (bird.y < r) { bird.y = r; bird.speed = 0; }
+  mathProblems += 3;
+
+  // 2. Slide the flowers left, and add new ones
+  for (const f of flowers) f.x -= FLOWER_SPEED;
+  flowers = flowers.filter(f => f.x > -FLOWER_SIZE);
+  if (flowers.length === 0 || flowers[flowers.length - 1].x < W - FLOWER_SPACING) addFlowers();
+  mathProblems += flowers.length * 2;
+
+  // 3. Score a point for each pair of flowers you get past
+  for (const f of flowers) {
+    if (!f.passed && f.x + FLOWER_SIZE < bird.x) { f.passed = true; score++; }
+  }
+
+  // 4. Crash checks: the ground, then every flower
+  let crashed = bird.y > H - r;
+  for (const f of flowers) {
+    const lx = bird.x - f.x;
+    if (bumps(f.bottom, lx, bird.y - f.gapBottom, r)) crashed = true;   // flower growing up
+    if (bumps(f.top,    lx, f.gapTop - bird.y,    r)) crashed = true;   // flower hanging down
+  }
+  if (crashed) {
+    mode = "over";
+    overTime = clock;
+    if (score > best) { best = score; try { localStorage.setItem("flappy-best", best); } catch (e) {} }
+  }
+}
+
+// ------------------------------------------------------------
+//  Drawing
+// ------------------------------------------------------------
+
+// Draws a flower growing DOWN from (0,0), with its stem stretched to "length"
+function drawFlower(o, length) {
+  if (!o.img.complete) return;
+  const s = FLOWER_SIZE / o.w;
+  const fh = o.h * s;
+  pen.drawImage(o.img, 0, 0, FLOWER_SIZE, fh);
+  if (length > fh) {
+    // stretch a slice of the stem to reach the edge of the screen
+    pen.drawImage(o.img, 0, o.h - 40, o.w, 35, 0, fh - 2, FLOWER_SIZE, length - fh + 2);
+  }
+}
+
+function drawButterfly() {
+  // It tips up when flying up, and nose-down when falling
+  const tilt = mode === "ready" ? 0 : Math.max(-0.5, Math.min(0.8, bird.speed * 0.06));
   const w = BIRD_SIZE * 1.4;
-  const h = w * body.height / body.width;
+  const h = w * DRAWING_H / DRAWING_W;
 
   // How open are the wings right now? (1 = wide open)
-  clock++;
   let wingOpen = 1 - 0.1 * (0.5 + 0.5 * Math.sin(clock * 0.2));   // gentle flutter
   if (wingTimer > 0) {
-    wingOpen = 1 - WING_FLAP * Math.sin(Math.PI * wingTimer / 12); // big flap: fold in, then back out
+    wingOpen = 1 - WING_FLAP * Math.sin(Math.PI * wingTimer / 12); // big flap
     wingTimer--;
   }
-  mathProblems += 3;
 
   pen.save();
   pen.translate(bird.x, bird.y);
   pen.rotate(tilt);
   if (wings.complete) {
     pen.save();
-    pen.scale(1, wingOpen);                       // squish the wings toward the body
+    pen.scale(1, wingOpen);   // squish the wings toward the body
     pen.drawImage(wings, -w / 2, -h / 2, w, h);
     pen.restore();
   }
-  if (body.complete) pen.drawImage(body, -w / 2, -h / 2, w, h);   // body goes on top
+  if (body.complete) pen.drawImage(body, -w / 2, -h / 2, w, h);
 
   // Blink every 2 to 5 seconds (the computer picks a random time)
   nextBlink--;
   if (nextBlink <= 0) { blinkTimer = 10; nextBlink = 120 + Math.random() * 180; }
+  if (mode === "over") blinkTimer = 5;   // eyes squeezed shut after a crash
   if (blinkTimer > 0) {
     const closed = Math.sin(Math.PI * blinkTimer / 10);   // 0 = open, 1 = shut
-    blinkTimer--;
+    if (mode !== "over") blinkTimer--;
     for (const eye of EYES) {
       const ex = (eye.x / DRAWING_W - 0.5) * w, ey = (eye.y / DRAWING_H - 0.5) * h;
       const erx = eye.rx / DRAWING_W * w, ery = eye.ry / DRAWING_H * h;
-      const lidBottom = ey - ery + 2 * ery * closed;      // the eyelid slides down
+      const lidBottom = ey - ery + 2 * ery * closed;
       pen.save();
       pen.beginPath();
       pen.ellipse(ex, ey, erx, ery, 0, 0, Math.PI * 2);
-      pen.clip();                                       // only paint inside the eye
+      pen.clip();
       pen.fillStyle = LID_COLOR;
       pen.fillRect(ex - erx, ey - ery - 1, erx * 2, lidBottom - (ey - ery) + 1);
       pen.restore();
-      // the eyelash line along the bottom of the lid
       pen.strokeStyle = "black";
       pen.lineWidth = Math.max(1.5, w / 60);
       pen.beginPath();
       pen.ellipse(ex, lidBottom - ery * 0.3 * closed, erx * 0.95, ery * 0.3 * closed + 0.01, 0, 0.15 * Math.PI, 0.85 * Math.PI);
       pen.stroke();
     }
-    mathProblems += 20;
   }
   pen.restore();
+}
 
-  // Every pixel on the screen has to be colored in, every single frame
+function bigText(text, y, size) {
+  pen.font = `bold ${size}px sans-serif`;
+  pen.textAlign = "center";
+  pen.lineWidth = size / 6;
+  pen.strokeStyle = "black";
+  pen.fillStyle = "white";
+  pen.strokeText(text, W / 2, y);
+  pen.fillText(text, W / 2, y);
+}
+
+function draw() {
+  pen.clearRect(0, 0, W, H);
+
+  for (const f of flowers) {
+    // bottom flower: grows up from the ground
+    pen.save();
+    pen.translate(f.x, f.gapBottom);
+    drawFlower(f.bottom, H - f.gapBottom);
+    pen.restore();
+    // top flower: flipped upside down, hanging from the sky
+    pen.save();
+    pen.translate(f.x, f.gapTop);
+    pen.scale(1, -1);
+    drawFlower(f.top, f.gapTop);
+    pen.restore();
+  }
+
+  drawButterfly();
+
+  if (mode === "ready") {
+    bigText("Ready?", 170, 56);
+    bigText("Press SPACE or tap to fly!", 470, 24);
+  } else {
+    bigText(score, 80, 64);
+  }
+  if (mode === "over") {
+    bigText("Oh no!", 230, 60);
+    bigText(`Score: ${score}    Best: ${best}`, 290, 28);
+    if (clock - overTime >= 40) bigText("Press SPACE to play again", 470, 24);
+  }
+
   picturesDrawn++;
-  const pixelsColored = picturesDrawn * screen.width * screen.height;
+}
 
+function showBrain() {
   const seconds = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   document.getElementById("brain").innerHTML =
     `🧠 The computer has drawn <b>${picturesDrawn.toLocaleString()}</b> pictures so far ` +
     `(about <b>${Math.round(picturesDrawn / seconds)}</b> every second!)<br>` +
-    `🎨 It has colored in <b>${pixelsColored.toLocaleString()}</b> dots on the screen<br>` +
-    `➗ It has solved <b>${mathProblems.toLocaleString()}</b> math problems just to move the bird`;
-
-  // 4. Do it all again, super fast
-  requestAnimationFrame(gameLoop);
+    `🎨 It has colored in <b>${(picturesDrawn * W * H).toLocaleString()}</b> dots on the screen<br>` +
+    `🌸 It has checked <b>${crashChecks.toLocaleString()}</b> times whether the butterfly bumped a flower<br>` +
+    `➗ It has solved <b>${mathProblems.toLocaleString()}</b> math problems`;
 }
 
-gameLoop();
+// ------------------------------------------------------------
+//  The game loop: move things in steady 1/60-second steps
+//  (so the game runs the same speed on every computer), then draw.
+// ------------------------------------------------------------
+let lastTime = performance.now(), leftover = 0;
+function gameLoop(now) {
+  leftover += Math.min(now - lastTime, 100);
+  lastTime = now;
+  while (leftover >= 1000 / 60) { update(); leftover -= 1000 / 60; }
+  draw();
+  showBrain();
+  requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
