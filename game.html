@@ -37,6 +37,16 @@ body.src = "assets/butterfly-body.png";
 let wingTimer = 0;      // counts down while the wings are doing a flap
 let clock = 0;          // counts every picture, used for a gentle flutter
 
+// Blinking! Where her eyes are in the drawing (measured by the computer, in dots)
+const EYES = [
+  { x: 416, y: 156, rx: 37, ry: 40 },   // left eye
+  { x: 525, y: 179, rx: 41, ry: 31 }    // right eye
+];
+const DRAWING_W = 600, DRAWING_H = 422;
+const LID_COLOR = "rgb(109,103,90)";    // same gray she colored the head
+let nextBlink = 120;    // pictures until the next blink
+let blinkTimer = 0;
+
 // ------------------------------------------------------------
 
 const screen = document.getElementById("screen");
@@ -103,6 +113,33 @@ function gameLoop() {
     pen.restore();
   }
   if (body.complete) pen.drawImage(body, -w / 2, -h / 2, w, h);   // body goes on top
+
+  // Blink every 2 to 5 seconds (the computer picks a random time)
+  nextBlink--;
+  if (nextBlink <= 0) { blinkTimer = 10; nextBlink = 120 + Math.random() * 180; }
+  if (blinkTimer > 0) {
+    const closed = Math.sin(Math.PI * blinkTimer / 10);   // 0 = open, 1 = shut
+    blinkTimer--;
+    for (const eye of EYES) {
+      const ex = (eye.x / DRAWING_W - 0.5) * w, ey = (eye.y / DRAWING_H - 0.5) * h;
+      const erx = eye.rx / DRAWING_W * w, ery = eye.ry / DRAWING_H * h;
+      const lidBottom = ey - ery + 2 * ery * closed;      // the eyelid slides down
+      pen.save();
+      pen.beginPath();
+      pen.ellipse(ex, ey, erx, ery, 0, 0, Math.PI * 2);
+      pen.clip();                                       // only paint inside the eye
+      pen.fillStyle = LID_COLOR;
+      pen.fillRect(ex - erx, ey - ery - 1, erx * 2, lidBottom - (ey - ery) + 1);
+      pen.restore();
+      // the eyelash line along the bottom of the lid
+      pen.strokeStyle = "black";
+      pen.lineWidth = Math.max(1.5, w / 60);
+      pen.beginPath();
+      pen.ellipse(ex, lidBottom - ery * 0.3 * closed, erx * 0.95, ery * 0.3 * closed + 0.01, 0, 0.15 * Math.PI, 0.85 * Math.PI);
+      pen.stroke();
+    }
+    mathProblems += 20;
+  }
   pen.restore();
 
   // Every pixel on the screen has to be colored in, every single frame
