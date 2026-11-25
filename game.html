@@ -8,14 +8,38 @@
   canvas { background: #7ec8f0; margin-top: 20px; border-radius: 8px; touch-action: none; }
   #brain { margin-top: 10px; font-size: 18px; text-align: center; line-height: 1.6; }
   #brain b { color: #ffd84d; }
+  #game-area { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 20px; }
+  #game-col { display: flex; flex-direction: column; align-items: center; }
+  #gear { margin-top: 20px; font-size: 18px; padding: 8px 16px; border-radius: 20px; border: none;
+          background: #ffd84d; color: #222; font-weight: bold; cursor: pointer; }
+  #settings { display: none; margin-top: 20px; background: #333; border-radius: 12px; padding: 16px 20px; width: 300px; }
+  #settings.open { display: block; }
+  #settings h2 { margin: 0 0 12px; font-size: 22px; }
+  .knob { margin-bottom: 14px; }
+  .knob label { display: flex; justify-content: space-between; font-size: 16px; }
+  .knob .val { color: #ffd84d; font-weight: bold; }
+  .knob input { width: 100%; accent-color: #ffd84d; }
+  .knob .hint { font-size: 13px; color: #aaa; }
+  #reset { width: 100%; padding: 8px; font-size: 16px; border-radius: 8px; border: none; cursor: pointer; }
 </style>
 </head>
 <body>
 
-<canvas id="screen" width="400" height="600"></canvas>
+<button id="gear">⚙️ Settings</button>
 
-<!-- This box shows how hard the computer is working -->
-<div id="brain"></div>
+<div id="game-area">
+  <div id="game-col">
+    <canvas id="screen" width="400" height="600"></canvas>
+    <!-- This box shows how hard the computer is working -->
+    <div id="brain"></div>
+  </div>
+  <!-- The settings panel: sliders that change the knobs while you play -->
+  <div id="settings">
+    <h2>⚙️ Settings</h2>
+    <div id="knobs"></div>
+    <button id="reset">↩️ Back to normal</button>
+  </div>
+</div>
 
 <script>
 // ============================================================
@@ -303,6 +327,63 @@ function showBrain() {
     `🌸 It has checked <b>${crashChecks.toLocaleString()}</b> times whether the butterfly bumped a flower<br>` +
     `➗ It has solved <b>${mathProblems.toLocaleString()}</b> math problems`;
 }
+
+// ------------------------------------------------------------
+//  The settings screen: a slider for each knob.
+//  Moving a slider changes the number while the game is running!
+// ------------------------------------------------------------
+const KNOBS = [
+  { label: "🌍 Gravity", min: 0.1, max: 1.2, step: 0.05, get: () => GRAVITY, set: v => GRAVITY = v,
+    hint: v => v < 0.2 ? "Floaty like the Moon 🌙" : v < 0.55 ? "Normal, like Earth" : v < 0.9 ? "Heavy!" : "Jupiter! 🪐" },
+  { label: "💪 Flap strength", min: 3, max: 15, step: 0.5, get: () => -FLAP_POWER, set: v => FLAP_POWER = -v,
+    hint: v => v < 5 ? "Tiny flaps" : v < 10 ? "Normal flaps" : "SUPER flaps!" },
+  { label: "🦋 Butterfly size", min: 30, max: 150, step: 5, get: () => BIRD_SIZE, set: v => BIRD_SIZE = v,
+    hint: v => v < 50 ? "Teeny tiny" : v < 100 ? "Just right" : "GIANT butterfly!" },
+  { label: "🪽 Wing flap", min: 0, max: 1, step: 0.05, get: () => WING_FLAP, set: v => WING_FLAP = v,
+    hint: v => v < 0.2 ? "Barely moving" : v < 0.8 ? "Normal flapping" : "Wings fold all the way" },
+  { label: "🌸 Flower size", min: 60, max: 200, step: 5, get: () => FLOWER_SIZE, set: v => FLOWER_SIZE = v,
+    hint: v => v < 90 ? "Little sprouts" : v < 150 ? "Normal flowers" : "Huge flowers!" },
+  { label: "↕️ Gap size", min: 120, max: 350, step: 5, get: () => GAP, set: v => GAP = v,
+    hint: v => v < 170 ? "Really hard!" : v < 240 ? "Normal" : "Easy peasy" },
+  { label: "💨 Flower speed", min: 1, max: 7, step: 0.25, get: () => FLOWER_SPEED, set: v => FLOWER_SPEED = v,
+    hint: v => v < 2 ? "Slow and gentle" : v < 3.5 ? "Normal" : v < 5 ? "Fast!" : "SUPER FAST! 🚀" },
+  { label: "📏 Flower spacing", min: 150, max: 400, step: 10, get: () => FLOWER_SPACING, set: v => FLOWER_SPACING = v,
+    hint: v => v < 200 ? "Packed close together" : v < 300 ? "Normal" : "Lots of room" },
+];
+const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
+
+function saveKnobs() {
+  try { localStorage.setItem("flappy-knobs", JSON.stringify(KNOBS.map(k => k.get()))); } catch (e) {}
+}
+try {   // load the settings from last time, if there are any
+  const saved = JSON.parse(localStorage.getItem("flappy-knobs"));
+  if (Array.isArray(saved) && saved.length === KNOBS.length) saved.forEach((v, i) => KNOBS[i].set(v));
+} catch (e) {}
+
+const knobsBox = document.getElementById("knobs");
+for (const k of KNOBS) {
+  const div = document.createElement("div");
+  div.className = "knob";
+  div.innerHTML = `<label><span>${k.label}</span><span class="val"></span></label>
+    <input type="range" min="${k.min}" max="${k.max}" step="${k.step}"><div class="hint"></div>`;
+  const slider = div.querySelector("input");
+  k.show = () => {
+    slider.value = k.get();
+    div.querySelector(".val").textContent = +k.get().toFixed(2);
+    div.querySelector(".hint").textContent = k.hint(k.get());
+  };
+  slider.addEventListener("input", () => { k.set(Number(slider.value)); k.show(); saveKnobs(); });
+  k.show();
+  knobsBox.appendChild(div);
+}
+document.getElementById("reset").addEventListener("click", () => {
+  KNOBS.forEach((k, i) => { k.set(NORMAL[i]); k.show(); });
+  saveKnobs();
+});
+document.getElementById("gear").addEventListener("click", e => {
+  document.getElementById("settings").classList.toggle("open");
+  e.target.blur();   // so SPACE flaps instead of clicking the button again
+});
 
 // ------------------------------------------------------------
 //  The game loop: move things in steady 1/60-second steps
