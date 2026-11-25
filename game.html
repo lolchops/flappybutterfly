@@ -6,8 +6,6 @@
 <style>
   body { margin: 0; background: #222; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; color: white; }
   canvas { background: #7ec8f0; margin-top: 20px; border-radius: 8px; touch-action: none; }
-  #brain { margin-top: 10px; font-size: 18px; text-align: center; line-height: 1.6; }
-  #brain b { color: #ffd84d; }
   #game-area { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 20px; }
   #game-col { display: flex; flex-direction: column; align-items: center; }
   #gear { margin-top: 20px; font-size: 18px; padding: 8px 16px; border-radius: 20px; border: none;
@@ -30,8 +28,6 @@
 <div id="game-area">
   <div id="game-col">
     <canvas id="screen" width="400" height="600"></canvas>
-    <!-- This box shows how hard the computer is working -->
-    <div id="brain"></div>
   </div>
   <!-- The settings panel: sliders that change the knobs while you play -->
   <div id="settings">
@@ -102,10 +98,6 @@ let overTime = 0;
 
 let wingTimer = 0, clock = 0, nextBlink = 120, blinkTimer = 0;
 
-// Counters to show off how hard the computer is working
-let picturesDrawn = 0, mathProblems = 0, crashChecks = 0;
-const startTime = Date.now();
-
 // ------------------------------------------------------------
 //  Pressing SPACE, clicking, or tapping
 // ------------------------------------------------------------
@@ -149,8 +141,6 @@ function addFlowers() {
 //  (lx, ly) is the butterfly's spot measured from the flower's head
 // ------------------------------------------------------------
 function bumps(o, lx, ly, r) {
-  crashChecks++;
-  mathProblems += 12;
   const s = FLOWER_SIZE / o.w;
   // the flower head is (about) an oval
   const cx = o.w / 2 * s, cy = o.headBottom / 2 * s;
@@ -179,13 +169,11 @@ function update() {
   bird.speed += GRAVITY;
   bird.y += bird.speed;
   if (bird.y < r) { bird.y = r; bird.speed = 0; }
-  mathProblems += 3;
 
   // 2. Slide the flowers left, and add new ones
   for (const f of flowers) f.x -= FLOWER_SPEED;
   flowers = flowers.filter(f => f.x > -FLOWER_SIZE);
   if (flowers.length === 0 || flowers[flowers.length - 1].x < W - FLOWER_SPACING) addFlowers();
-  mathProblems += flowers.length * 2;
 
   // 3. Score a point for each pair of flowers you get past
   for (const f of flowers) {
@@ -314,18 +302,6 @@ function draw() {
     bigText(`Score: ${score}    Best: ${best}`, 290, 28);
     if (clock - overTime >= 40) bigText("Press SPACE to play again", 470, 24);
   }
-
-  picturesDrawn++;
-}
-
-function showBrain() {
-  const seconds = Math.max(1, Math.round((Date.now() - startTime) / 1000));
-  document.getElementById("brain").innerHTML =
-    `🧠 The computer has drawn <b>${picturesDrawn.toLocaleString()}</b> pictures so far ` +
-    `(about <b>${Math.round(picturesDrawn / seconds)}</b> every second!)<br>` +
-    `🎨 It has colored in <b>${(picturesDrawn * W * H).toLocaleString()}</b> dots on the screen<br>` +
-    `🌸 It has checked <b>${crashChecks.toLocaleString()}</b> times whether the butterfly bumped a flower<br>` +
-    `➗ It has solved <b>${mathProblems.toLocaleString()}</b> math problems`;
 }
 
 // ------------------------------------------------------------
@@ -395,7 +371,6 @@ function gameLoop(now) {
   lastTime = now;
   while (leftover >= 1000 / 60) { update(); leftover -= 1000 / 60; }
   draw();
-  showBrain();
   requestAnimationFrame(gameLoop);
 }
 requestAnimationFrame(gameLoop);
