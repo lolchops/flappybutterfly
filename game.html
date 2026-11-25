@@ -52,6 +52,7 @@ let FLOWER_SIZE    = 120;  // how wide the flowers are
 let GAP            = 200;  // space between the top and bottom flowers (smaller = harder!)
 let FLOWER_SPEED   = 2.5;  // how fast the flowers slide by
 let FLOWER_SPACING = 240;  // distance from one pair of flowers to the next
+let WATER_SPEED    = 1.5;  // how fast the watering can pours
 
 // ============================================================
 //  STEP 2: Her drawings!
@@ -73,12 +74,28 @@ const LID_COLOR = "rgb(109,103,90)";    // same gray she colored the head
 
 // STEP 3: The flower obstacles. The computer measured where each
 // flower's head and stem are, so it knows when the butterfly bumps one.
-// (topOnly: true means it only hangs from the top, like the watering can will)
 const OBSTACLES = [
   { img: picture("flower-red.png"),    w: 300, h: 430, stemX0: 79, stemX1: 188, headBottom: 266 },
   { img: picture("flower-purple.png"), w: 300, h: 396, stemX0: 71, stemX1: 158, headBottom: 259 },
   { img: picture("flower-orange.png"), w: 300, h: 563, stemX0: 52, stemX1: 197, headBottom: 270 },
 ];
+
+// STEP 5: The watering can! It only hangs from the top, and slowly pours
+// water down to the middle of the screen. (Measured in dots of her drawing.)
+const CAN = {
+  img: picture("watering-can.png"), w: 600, h: 389,
+  parts: [                  // the pieces the butterfly can bump: [left, top, right, bottom]
+    [285,   0, 585, 215],   // the can
+    [290, 215, 555, 385],   // the handle
+    [ 95, 110, 290, 230],   // the spout
+    [ 10,  55, 150, 355],   // the water she drew coming out of the spout
+  ],
+  streamX0: 50, streamX1: 140, streamTop: 320,   // where the poured water comes out
+};
+const CAN_CHANCE = 0.25;    // 1 out of every 4 tops is a watering can
+const WATER_BLUE = "rgb(8,32,115)";   // the same blue she used for water
+function canWidth() { return FLOWER_SIZE * 2; }
+function columnWidth(f) { return f.can ? canWidth() : FLOWER_SIZE; }
 
 // ============================================================
 
@@ -125,15 +142,36 @@ function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
 function addFlowers() {
   const margin = 70;
-  const gapMiddle = margin + GAP / 2 + Math.random() * (H - 2 * margin - GAP);
+  const hasCan = Math.random() < CAN_CHANCE;
+  let gapMiddle = margin + GAP / 2 + Math.random() * (H - 2 * margin - GAP);
+  if (hasCan) gapMiddle = H / 2 + GAP / 2;   // the water stops halfway down; the gap is just below it
   flowers.push({
     x: W,
     gapTop: gapMiddle - GAP / 2,
     gapBottom: gapMiddle + GAP / 2,
     top: pick(OBSTACLES),
-    bottom: pick(OBSTACLES.filter(o => !o.topOnly)),
+    bottom: pick(OBSTACLES),
+    can: hasCan,
+    pour: 0,          // how far the water has poured so far
+    drops: [],        // little splashing water drops
     passed: false
   });
+}
+
+// Is the circle (px, py, r) touching the rectangle?
+function hitsBox(px, py, r, x0, y0, x1, y1) {
+  const nx = Math.max(x0, Math.min(px, x1)), ny = Math.max(y0, Math.min(py, y1));
+  return (px - nx) ** 2 + (py - ny) ** 2 < r * r;
+}
+
+// Did the butterfly bump the watering can, or its water?
+function bumpsCan(f, lx, ly, r) {
+  const s = canWidth() / CAN.w;
+  for (const [x0, y0, x1, y1] of CAN.parts) {
+    if (hitsBox(lx, ly, r, x0 * s, y0 * s, x1 * s, y1 * s)) return true;
+  }
+  const top = CAN.streamTop * s;
+  return f.pour > 0 && hitsBox(lx, ly, r, CAN.streamX0 * s, top, CAN.streamX1 * s, top + f.pour);
 }
 
 // ------------------------------------------------------------
@@ -172,20 +210,39 @@ function update() {
 
   // 2. Slide the flowers left, and add new ones
   for (const f of flowers) f.x -= FLOWER_SPEED;
-  flowers = flowers.filter(f => f.x > -FLOWER_SIZE);
-  if (flowers.length === 0 || flowers[flowers.length - 1].x < W - FLOWER_SPACING) addFlowers();
+  flowers = flowers.filter(f => f.x > -columnWidth(f));
+  const last = flowers[flowers.length - 1];
+  if (!last || last.x + columnWidth(last) < W - (FLOWER_SPACING - FLOWER_SIZE)) addFlowers();
 
-  // 3. Score a point for each pair of flowers you get past
+  // 3. The watering cans pour, a little more each step, until the water is halfway down
   for (const f of flowers) {
-    if (!f.passed && f.x + FLOWER_SIZE < bird.x) { f.passed = true; score++; }
+    if (!f.can) continue;
+    const s = canWidth() / CAN.w;
+    f.pour = Math.min(f.pour + WATER_SPEED, H / 2 - CAN.streamTop * s);
+    // splashy drops fall off the end of the water
+    if (f.pour > 0 && Math.random() < 0.5) {
+      f.drops.push({ x: (CAN.streamX0 + Math.random() * (CAN.streamX1 - CAN.streamX0)) * s,
+                     y: CAN.streamTop * s + f.pour, speed: 1 + Math.random() * 2, age: 0 });
+    }
+    for (const d of f.drops) { d.y += d.speed; d.speed += 0.3; d.age++; }
+    f.drops = f.drops.filter(d => d.age < 15);
   }
 
-  // 4. Crash checks: the ground, then every flower
+  // 4. Score a point for each pair you get past
+  for (const f of flowers) {
+    if (!f.passed && f.x + columnWidth(f) < bird.x) { f.passed = true; score++; }
+  }
+
+  // 5. Crash checks: the ground, then every flower and watering can
   let crashed = bird.y > H - r;
   for (const f of flowers) {
     const lx = bird.x - f.x;
     if (bumps(f.bottom, lx, bird.y - f.gapBottom, r)) crashed = true;   // flower growing up
-    if (bumps(f.top,    lx, f.gapTop - bird.y,    r)) crashed = true;   // flower hanging down
+    if (f.can) {
+      if (bumpsCan(f, lx, bird.y, r)) crashed = true;                   // watering can and its water
+    } else {
+      if (bumps(f.top, lx, f.gapTop - bird.y, r)) crashed = true;       // flower hanging down
+    }
   }
   if (crashed) {
     mode = "over";
@@ -208,6 +265,69 @@ function drawFlower(o, length) {
     // stretch a slice of the stem to reach the edge of the screen
     pen.drawImage(o.img, 0, o.h - 40, o.w, 35, 0, fh - 2, FLOWER_SIZE, length - fh + 2);
   }
+}
+
+// Draws the watering can at the top of the screen, pouring its water
+function drawCan(f) {
+  const s = canWidth() / CAN.w;
+  pen.save();
+  pen.translate(f.x, 0);
+  if (CAN.img.complete) pen.drawImage(CAN.img, 0, 0, CAN.w * s, CAN.h * s);
+
+  if (f.pour > 0) {
+    const x0 = CAN.streamX0 * s, x1 = CAN.streamX1 * s;
+    const top = CAN.streamTop * s, end = top + f.pour;
+    // The water's edges wiggle, and it gets a bit skinnier as it falls
+    const left = [], right = [];
+    for (let y = top; y < end; y += 4) left.push(y);
+    left.push(end);
+    const edge = (y, side) => {
+      const wiggle = Math.sin(y * 0.12 - clock * 0.3) * 1.5;
+      const skinny = (x1 - x0) * 0.2 * ((y - top) / (H / 2));
+      return side < 0 ? x0 + skinny + wiggle : x1 - skinny + wiggle;
+    };
+    const bottomL = edge(end, -1), bottomR = edge(end, 1);
+    pen.beginPath();
+    left.forEach((y, i) => i ? pen.lineTo(edge(y, -1), y) : pen.moveTo(edge(y, -1), y));
+    pen.quadraticCurveTo((bottomL + bottomR) / 2, end + (bottomR - bottomL) * 0.7, bottomR, end);
+    for (let i = left.length - 1; i >= 0; i--) pen.lineTo(edge(left[i], 1), left[i]);
+    pen.closePath();
+    pen.fillStyle = WATER_BLUE;
+    pen.fill();
+
+    // black outline on the sides (starting below her drawn water) and the rounded bottom
+    pen.strokeStyle = "black";
+    pen.lineWidth = 2;
+    const outlineFrom = 362 * s;
+    for (const side of [-1, 1]) {
+      pen.beginPath();
+      left.filter(y => y >= outlineFrom).forEach((y, i) => i ? pen.lineTo(edge(y, side), y) : pen.moveTo(edge(y, side), y));
+      pen.stroke();
+    }
+    pen.beginPath();
+    pen.moveTo(bottomL, end);
+    pen.quadraticCurveTo((bottomL + bottomR) / 2, end + (bottomR - bottomL) * 0.7, bottomR, end);
+    pen.stroke();
+
+    // shiny streaks sliding down so it looks like it's flowing
+    pen.strokeStyle = "rgba(140,180,255,0.7)";
+    pen.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const y = top + (clock * 3 + i * 23) % Math.max(1, f.pour);
+      if (y + 10 > end) continue;
+      const x = x0 + (x1 - x0) * (0.3 + 0.4 * ((i * 37) % 10) / 10);
+      pen.beginPath(); pen.moveTo(x, y); pen.lineTo(x, y + 10); pen.stroke();
+    }
+
+    // splashing drops
+    pen.fillStyle = WATER_BLUE;
+    for (const d of f.drops) {
+      pen.globalAlpha = 1 - d.age / 15;
+      pen.beginPath(); pen.arc(d.x, d.y, 2.5, 0, Math.PI * 2); pen.fill();
+    }
+    pen.globalAlpha = 1;
+  }
+  pen.restore();
 }
 
 function drawButterfly() {
@@ -281,12 +401,16 @@ function draw() {
     pen.translate(f.x, f.gapBottom);
     drawFlower(f.bottom, H - f.gapBottom);
     pen.restore();
-    // top flower: flipped upside down, hanging from the sky
-    pen.save();
-    pen.translate(f.x, f.gapTop);
-    pen.scale(1, -1);
-    drawFlower(f.top, f.gapTop);
-    pen.restore();
+    if (f.can) {
+      drawCan(f);
+    } else {
+      // top flower: flipped upside down, hanging from the sky
+      pen.save();
+      pen.translate(f.x, f.gapTop);
+      pen.scale(1, -1);
+      drawFlower(f.top, f.gapTop);
+      pen.restore();
+    }
   }
 
   drawButterfly();
@@ -325,6 +449,8 @@ const KNOBS = [
     hint: v => v < 2 ? "Slow and gentle" : v < 3.5 ? "Normal" : v < 5 ? "Fast!" : "SUPER FAST! 🚀" },
   { label: "📏 Flower spacing", min: 150, max: 400, step: 10, get: () => FLOWER_SPACING, set: v => FLOWER_SPACING = v,
     hint: v => v < 200 ? "Packed close together" : v < 300 ? "Normal" : "Lots of room" },
+  { label: "💧 Water pour speed", min: 0.25, max: 5, step: 0.25, get: () => WATER_SPEED, set: v => WATER_SPEED = v,
+    hint: v => v < 1 ? "Slow drip" : v < 2.5 ? "Normal pour" : "Gushing! 🌊" },
 ];
 const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
 
@@ -333,7 +459,7 @@ function saveKnobs() {
 }
 try {   // load the settings from last time, if there are any
   const saved = JSON.parse(localStorage.getItem("flappy-knobs"));
-  if (Array.isArray(saved) && saved.length === KNOBS.length) saved.forEach((v, i) => KNOBS[i].set(v));
+  if (Array.isArray(saved)) saved.slice(0, KNOBS.length).forEach((v, i) => { if (typeof v === "number") KNOBS[i].set(v); });
 } catch (e) {}
 
 const knobsBox = document.getElementById("knobs");
