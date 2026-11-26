@@ -53,6 +53,7 @@ let GAP            = 200;  // space between the top and bottom flowers (smaller 
 let FLOWER_SPEED   = 2.5;  // how fast the flowers slide by
 let FLOWER_SPACING = 240;  // distance from one pair of flowers to the next
 let WATER_SPEED    = 1.5;  // how fast the watering can pours
+let CLOUD_SPEED    = 1;    // how fast the clouds drift (2 = twice as fast)
 
 // ============================================================
 //  STEP 2: Her drawings!
@@ -96,6 +97,23 @@ const CAN_CHANCE = 0.25;    // 1 out of every 4 tops is a watering can
 const WATER_BLUE = "rgb(8,32,115)";   // the same blue she used for water
 function canWidth() { return FLOWER_SIZE * 2; }
 function columnWidth(f) { return f.can ? canWidth() : FLOWER_SIZE; }
+
+// STEP 6: Her background, in layers! Each layer moves at its own speed,
+// and that's what makes the world look deep. It's called PARALLAX:
+//   🌞 the sky and sun are SO far away they never move,
+//   ☁️ the clouds drift slowly (big clouds are closer, so they go faster),
+//   🌱 the grass slides by under the butterfly,
+//   🌸 and the flowers, right in front, go fastest of all.
+// Each time of day gets its own sky and grass. Sunset and night are coming soon!
+const SCENES = {
+  day: { sky: picture("sky-day.png"), grass: picture("grass-day.png") },
+};
+let scene = SCENES.day;
+const GRASS_TOP = 419.6;          // where her horizon line is on the screen
+const GRASS_PARALLAX = 0.6;       // grass moves at 6/10 of the flower speed
+const CLOUD_PICS = [picture("cloud-big.png"), picture("cloud-small.png")];
+let clouds = [];
+let grassX = 0;                   // how far the grass has slid
 
 // ============================================================
 
@@ -193,9 +211,31 @@ function bumps(o, lx, ly, r) {
 // ------------------------------------------------------------
 //  Move everything one tiny step (60 times every second)
 // ------------------------------------------------------------
+// A new cloud: the computer picks which drawing, how big, how high, and which way it faces.
+function makeCloud(x) {
+  const pic = CLOUD_PICS[Math.random() < 0.5 ? 0 : 1];
+  const scale = pic === CLOUD_PICS[0] ? 0.3 + Math.random() * 0.35 : 0.55 + Math.random() * 0.6;
+  const w = pic.width / 2 * scale || 120;
+  return { pic, scale, x: x ?? W + 10, y: 15 + Math.random() * 300,
+           flip: Math.random() < 0.5, speed: 0.08 + w / 900 };   // bigger = closer = faster
+}
+
+function moveBackground() {
+  if (mode === "playing") grassX += FLOWER_SPEED * GRASS_PARALLAX;
+  if (clouds.length === 0 && CLOUD_PICS[0].complete && CLOUD_PICS[0].width) {
+    for (let i = 0; i < 4; i++) clouds.push(makeCloud(Math.random() * W));   // fill the sky to start
+  }
+  for (const c of clouds) c.x -= c.speed * CLOUD_SPEED;
+  clouds = clouds.filter(c => c.x > -c.pic.width / 2 * c.scale);
+  const rightmost = Math.max(-1e9, ...clouds.map(c => c.x + c.pic.width / 2 * c.scale));
+  if (clouds.length && clouds.length < 5 && rightmost < W - 30 && Math.random() < 0.01) clouds.push(makeCloud());
+  clouds.sort((a, b) => a.speed - b.speed);   // far (slow) clouds get drawn first, behind
+}
+
 function update() {
   clock++;
   const r = BIRD_SIZE * 0.3;   // the butterfly's "bump circle"
+  moveBackground();
 
   if (mode === "ready") {
     bird.y = 300 + Math.sin(clock * 0.08) * 12;   // float gently while waiting
@@ -392,8 +432,38 @@ function bigText(text, y, size) {
   pen.fillText(text, W / 2, y);
 }
 
+function drawBackground() {
+  // 1. The sky and sun (never moves)
+  if (scene.sky.complete) pen.drawImage(scene.sky, 0, 0, W, H);
+
+  // 2. The clouds
+  for (const c of clouds) {
+    const w = c.pic.width / 2 * c.scale, h = c.pic.height / 2 * c.scale;
+    pen.save();
+    pen.translate(c.x + (c.flip ? w : 0), c.y);
+    if (c.flip) pen.scale(-1, 1);
+    pen.drawImage(c.pic, 0, 0, w, h);
+    pen.restore();
+  }
+
+  // 3. The grass. Her drawing is placed over and over, every other copy
+  //    flipped like a mirror, so the edges always match up perfectly.
+  const g = scene.grass;
+  if (!g.complete) return;
+  const gw = g.width / 2, gh = g.height / 2;
+  const offset = grassX % (2 * gw);
+  for (let k = 0; k * gw - offset < W; k++) {
+    const x = k * gw - offset;
+    pen.save();
+    if (k % 2) { pen.translate(x + gw, 0); pen.scale(-1, 1); } else pen.translate(x, 0);
+    pen.drawImage(g, 0, GRASS_TOP, gw + 0.5, gh);
+    pen.restore();
+  }
+}
+
 function draw() {
   pen.clearRect(0, 0, W, H);
+  drawBackground();
 
   for (const f of flowers) {
     // bottom flower: grows up from the ground
@@ -451,6 +521,8 @@ const KNOBS = [
     hint: v => v < 200 ? "Packed close together" : v < 300 ? "Normal" : "Lots of room" },
   { label: "💧 Water pour speed", min: 0.25, max: 5, step: 0.25, get: () => WATER_SPEED, set: v => WATER_SPEED = v,
     hint: v => v < 1 ? "Slow drip" : v < 2.5 ? "Normal pour" : "Gushing! 🌊" },
+  { label: "☁️ Cloud speed", min: 0, max: 10, step: 0.5, get: () => CLOUD_SPEED, set: v => CLOUD_SPEED = v,
+    hint: v => v === 0 ? "Frozen in the sky" : v < 2 ? "Lazy drifting" : v < 5 ? "Windy day 💨" : "Hurricane! 🌪️" },
 ];
 const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
 
