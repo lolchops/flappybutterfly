@@ -127,7 +127,15 @@ const SCENES = {
                { img: picture("star-4.png"), x: 571.0, y: 475.9, w: 215.2, h: 192.7 },
                { img: picture("moon-night.png"), x: 348.4, y: 329.7, w: 194.6, h: 271.2, still: true },
              ] },
+  // STEP 11: Storm! Sometimes a stormy day comes instead of a sunny one.
+  // Her whole stormy sky scrolls by, with rain falling and lightning flashing.
+  storm:   { sky: picture("sky-storm.png"), skySpeed: 0.35, land: null,
+             cloudTint: "rgba(60, 70, 100, 0.5)",
+             nightShade: "rgba(30, 40, 70, 0.15)",   // a bit gloomy
+             rain: true },
 };
+let STORM_CHANCE = 0.4;           // each new day has a 4 in 10 chance of being stormy
+let sunnyDaysInARow = 0;
 const TIME_OF_DAY = ["sunrise", "day", "sunset", "night"];
 let TIME_CHANGE_EVERY = 10;       // flowers to pass before the time of day changes
 const FADE_FRAMES = 180;          // a change takes 3 seconds (180 pictures)
@@ -196,6 +204,7 @@ function restart() {
   flowers = []; score = 0;
   pollens = []; pollenCount = 0; power = 0; crumbs = []; munchTimer = 0;
   if (sceneName !== TIME_OF_DAY[0]) changeScene(TIME_OF_DAY[0]);   // back to morning
+  sunnyDaysInARow = 0;
   mode = "ready";
 }
 
@@ -276,6 +285,7 @@ function makeCloud(x) {
 function moveBackground() {
   if (mode === "playing") grassX += FLOWER_SPEED * GRASS_PARALLAX;
   if (fade < 1) fade = Math.min(1, fade + 1 / FADE_FRAMES);
+  moveStorm();
   if (clouds.length === 0 && CLOUD_PICS[0].complete && CLOUD_PICS[0].width) {
     for (let i = 0; i < 4; i++) clouds.push(makeCloud(Math.random() * W));   // fill the sky to start
   }
@@ -664,7 +674,55 @@ function changeScene(name) {
 
 function nextTimeOfDay() {
   const drawn = TIME_OF_DAY.filter(n => SCENES[n]);   // only the ones she's drawn so far
-  changeScene(drawn[(drawn.indexOf(sceneName) + 1) % drawn.length]);
+  const now = sceneName === "storm" ? "day" : sceneName;   // a storm takes the place of "day"
+  let next = drawn[(drawn.indexOf(now) + 1) % drawn.length];
+  if (next === "day") {
+    // Is it a stormy day? The first day of a game is always sunny, storms never
+    // come twice in a row, and after 2 sunny days in a row a storm is sure to come.
+    const stormy = sunnyDaysInARow >= 1 &&
+                   (sunnyDaysInARow >= 2 || Math.random() < STORM_CHANCE);
+    if (stormy) { next = "storm"; sunnyDaysInARow = 0; } else sunnyDaysInARow++;
+  }
+  changeScene(next);
+}
+
+// Rain and lightning (only during a storm)
+let rain = [];
+let flash = 0;                    // how bright the lightning flash is right now
+let nextFlash = 200;
+function moveStorm() {
+  const amount = stormAmount();
+  const want = Math.round(70 * amount);
+  while (rain.length < want) rain.push({ x: Math.random() * (W + 100), y: Math.random() * -H, speed: 9 + Math.random() * 5 });
+  if (rain.length > want) rain.length = want;
+  for (const d of rain) {
+    d.y += d.speed; d.x -= d.speed * 0.25;              // rain falls a little sideways in the wind
+    if (d.y > H) { d.y = -20 - Math.random() * 100; d.x = Math.random() * (W + 100); }
+  }
+  if (flash > 0) flash *= 0.85;
+  if (amount > 0.8 && --nextFlash <= 0) {
+    flash = 1;                                           // CRACK! lightning!
+    nextFlash = 150 + Math.random() * 300;               // the next one in 2.5 to 7.5 seconds
+  }
+}
+// How stormy is it right now? (it fades in and out with the scene)
+function stormAmount() {
+  const easeIn = fade * fade * (3 - 2 * fade);
+  return (scene.rain ? easeIn : 0) + (oldScene && oldScene.rain && fade < 1 ? 1 - easeIn : 0);
+}
+function drawStorm() {
+  if (!rain.length && flash < 0.02) return;
+  pen.save();
+  pen.strokeStyle = "rgba(200, 220, 255, 0.7)";
+  pen.lineWidth = 2;
+  pen.beginPath();
+  for (const d of rain) { pen.moveTo(d.x, d.y); pen.lineTo(d.x - 4, d.y + 16); }
+  pen.stroke();
+  if (flash > 0.02) {
+    pen.fillStyle = `rgba(255, 255, 240, ${flash * 0.6})`;
+    pen.fillRect(0, 0, W, H);
+  }
+  pen.restore();
 }
 
 // Clouds tinted for the time of day (made once, then remembered)
@@ -785,6 +843,7 @@ function draw() {
   for (const p of pollens) if (p.got) drawEaten(p);
   drawCrumbs();
   drawOrb(true);
+  drawStorm();
   drawPollenBox();
 
   if (mode === "ready") {
@@ -829,6 +888,8 @@ const KNOBS = [
     hint: v => v < 6 ? "Quick sparkle" : v < 15 ? "Normal power-up" : "SUPER long! 🦋✨" },
   { label: "🌅 Time of day changes every", min: 2, max: 30, step: 1, get: () => TIME_CHANGE_EVERY, set: v => TIME_CHANGE_EVERY = v,
     hint: v => `${v} flowers` + (v < 6 ? " (super speedy days!)" : v > 20 ? " (looong days)" : "") },
+  { label: "⛈️ Storm chance", min: 0, max: 1, step: 0.1, get: () => STORM_CHANCE, set: v => STORM_CHANCE = v,
+    hint: v => v === 0 ? "Only when 2 sunny days in a row" : v < 0.3 ? "Mostly sunny" : v < 0.7 ? "Sometimes stormy" : "Stormy whenever it can! ⚡" },
 ];
 const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
 
