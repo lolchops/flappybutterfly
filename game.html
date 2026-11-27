@@ -54,6 +54,7 @@ let FLOWER_SPEED   = 2.5;  // how fast the flowers slide by
 let FLOWER_SPACING = 240;  // distance from one pair of flowers to the next
 let WATER_SPEED    = 1.5;  // how fast the watering can pours
 let CLOUD_SPEED    = 1;    // how fast the clouds drift (2 = twice as fast)
+let POWER_SECONDS  = 10;   // how long the butterfly is invincible after 10 pollen
 
 // ============================================================
 //  STEP 2: Her drawings!
@@ -115,6 +116,16 @@ const CLOUD_PICS = [picture("cloud-big.png"), picture("cloud-small.png")];
 let clouds = [];
 let grassX = 0;                   // how far the grass has slid
 
+// STEP 7: Pollen coins! Collect 10 to fill the box, and the butterfly
+// becomes INVINCIBLE inside a glowing bubble. The box empties as time runs out.
+const POLLEN = picture("pollen.png");
+const POLLEN_W = 38, POLLEN_H = 38 * 110 / 160;
+const POLLEN_NEEDED = 10;
+let pollens = [];       // pollen coins on the screen right now
+let pollenCount = 0;    // how many are in the box
+let power = 0;          // pictures of invincibility left (60 every second)
+let powerMax = 1;
+
 // ============================================================
 
 const screen = document.getElementById("screen");
@@ -153,6 +164,7 @@ screen.addEventListener("touchstart", e => { e.preventDefault(); press(); });
 function restart() {
   bird.y = 300; bird.speed = 0;
   flowers = []; score = 0;
+  pollens = []; pollenCount = 0; power = 0;
   mode = "ready";
 }
 
@@ -174,6 +186,16 @@ function addFlowers() {
     drops: [],        // little splashing water drops
     passed: false
   });
+
+  // Put a pollen coin in the butterfly's path: either right in this gap,
+  // or just past it, before the next flowers. (No pollen while invincible!)
+  if (power > 0) return;
+  const width = columnWidth(flowers[flowers.length - 1]);
+  if (Math.random() < 0.5) {
+    pollens.push({ x: W + width / 2, y: gapMiddle, got: 0 });
+  } else {
+    pollens.push({ x: W + width + (FLOWER_SPACING - FLOWER_SIZE) / 2, y: gapMiddle + (Math.random() - 0.5) * 60, got: 0 });
+  }
 }
 
 // Is the circle (px, py, r) touching the rectangle?
@@ -273,16 +295,39 @@ function update() {
     if (!f.passed && f.x + columnWidth(f) < bird.x) { f.passed = true; score++; }
   }
 
-  // 5. Crash checks: the ground, then every flower and watering can
-  let crashed = bird.y > H - r;
+  // 5. Pollen: slide along with the flowers, and get collected
+  for (const p of pollens) {
+    p.x -= FLOWER_SPEED;
+    if (p.got) { p.got++; continue; }
+    if (Math.hypot(p.x - bird.x, p.y - bird.y) < r + POLLEN_W / 2 && power === 0) {
+      p.got = 1;
+      pollenCount++;
+      if (pollenCount >= POLLEN_NEEDED) {          // the box is full: SUPER BUTTERFLY!
+        pollenCount = 0;
+        power = powerMax = Math.round(POWER_SECONDS * 60);
+        pollens = pollens.filter(q => q.got);      // no pollen while invincible
+      }
+    }
+  }
+  pollens = pollens.filter(p => p.x > -POLLEN_W && p.got < 12);
+
+  // 6. Crash checks: the ground, then every flower and watering can
+  const hitGround = bird.y > H - r;
+  let hitThing = false;
   for (const f of flowers) {
     const lx = bird.x - f.x;
-    if (bumps(f.bottom, lx, bird.y - f.gapBottom, r)) crashed = true;   // flower growing up
+    if (bumps(f.bottom, lx, bird.y - f.gapBottom, r)) hitThing = true;   // flower growing up
     if (f.can) {
-      if (bumpsCan(f, lx, bird.y, r)) crashed = true;                   // watering can and its water
+      if (bumpsCan(f, lx, bird.y, r)) hitThing = true;                   // watering can and its water
     } else {
-      if (bumps(f.top, lx, f.gapTop - bird.y, r)) crashed = true;       // flower hanging down
+      if (bumps(f.top, lx, f.gapTop - bird.y, r)) hitThing = true;       // flower hanging down
     }
+  }
+  let crashed = hitGround || hitThing;
+  if (power > 0) {
+    crashed = false;                                // invincible! nothing can hurt you
+    if (hitGround) { bird.y = H - r; bird.speed = FLAP_POWER * 0.9; wingTimer = 12; }   // boing!
+    if (power > 1 || !hitThing) power--;            // never run out while inside a flower
   }
   if (crashed) {
     mode = "over";
@@ -432,6 +477,79 @@ function bigText(text, y, size) {
   pen.fillText(text, W / 2, y);
 }
 
+function drawPollen(p) {
+  if (!POLLEN.complete) return;
+  const grow = 1 + p.got * 0.08;                    // when collected: puff up and fade away
+  const bob = p.got ? -p.got * 2 : Math.sin(clock * 0.1 + p.x * 0.05) * 4;
+  pen.save();
+  pen.globalAlpha = 1 - p.got / 12;
+  pen.translate(p.x, p.y + bob);
+  pen.scale(grow, grow);
+  pen.drawImage(POLLEN, -POLLEN_W / 2, -POLLEN_H / 2, POLLEN_W, POLLEN_H);
+  pen.restore();
+}
+
+// The glowing bubble around the butterfly while it's invincible.
+// Part of it goes behind the butterfly, and the shiny ring goes in front.
+function drawOrb(front) {
+  if (power <= 0) return;
+  if (power < 120 && Math.floor(power / 8) % 2) return;   // blinks when time is almost up
+  const R = BIRD_SIZE * 0.85 + Math.sin(clock * 0.15) * 4;
+  pen.save();
+  pen.translate(bird.x, bird.y);
+  if (!front) {
+    const glow = pen.createRadialGradient(0, 0, R * 0.2, 0, 0, R * 1.3);
+    glow.addColorStop(0, "rgba(255, 250, 180, 0.15)");
+    glow.addColorStop(0.7, "rgba(255, 215, 60, 0.45)");
+    glow.addColorStop(1, "rgba(255, 215, 60, 0)");
+    pen.fillStyle = glow;
+    pen.beginPath(); pen.arc(0, 0, R * 1.3, 0, Math.PI * 2); pen.fill();
+  } else {
+    pen.shadowColor = "rgba(255, 230, 80, 1)";
+    pen.shadowBlur = 18;
+    pen.strokeStyle = "rgba(255, 255, 210, 0.9)";
+    pen.lineWidth = 3;
+    pen.beginPath(); pen.arc(0, 0, R, 0, Math.PI * 2); pen.stroke();
+    pen.lineWidth = 4;                                     // a little shine on the bubble
+    pen.beginPath(); pen.arc(0, 0, R * 0.75, -2.5 + Math.sin(clock * 0.05) * 0.2, -1.9 + Math.sin(clock * 0.05) * 0.2); pen.stroke();
+  }
+  pen.restore();
+}
+
+// The pollen box in the corner. It fills up one pollen at a time,
+// then drains back down while the butterfly is invincible.
+function drawPollenBox() {
+  const x = 10, y = 10, w = 150, h = 42;
+  const barX = x + 50, barY = y + 11, barW = w - 60, barH = h - 22;
+  const fill = power > 0 ? power / powerMax : pollenCount / POLLEN_NEEDED;
+  pen.save();
+  pen.fillStyle = "rgba(255, 255, 255, 0.85)";
+  pen.strokeStyle = "black";
+  pen.lineWidth = 3;
+  pen.beginPath(); pen.roundRect(x, y, w, h, 10); pen.fill(); pen.stroke();
+  if (POLLEN.complete) pen.drawImage(POLLEN, x + 6, y + 8, POLLEN_W, POLLEN_H);
+  pen.fillStyle = "#eee";
+  pen.fillRect(barX, barY, barW, barH);
+  if (power > 0) {                                  // glowing, draining bar
+    pen.shadowColor = "rgba(255, 220, 60, 1)";
+    pen.shadowBlur = 8 + Math.sin(clock * 0.3) * 6;
+    pen.fillStyle = power < 120 && Math.floor(power / 8) % 2 ? "#fff3a0" : "#ffcc00";
+  } else {
+    pen.fillStyle = "#ffcc00";
+  }
+  pen.fillRect(barX, barY, barW * fill, barH);
+  pen.shadowBlur = 0;
+  pen.strokeStyle = "black";
+  pen.lineWidth = 1;
+  for (let i = 1; i < POLLEN_NEEDED; i++) {         // a little line for each of the 10 pollen
+    const lx = barX + barW * i / POLLEN_NEEDED;
+    pen.beginPath(); pen.moveTo(lx, barY); pen.lineTo(lx, barY + barH); pen.stroke();
+  }
+  pen.lineWidth = 2;
+  pen.strokeRect(barX, barY, barW, barH);
+  pen.restore();
+}
+
 function drawBackground() {
   // 1. The sky and sun (never moves)
   if (scene.sky.complete) pen.drawImage(scene.sky, 0, 0, W, H);
@@ -483,7 +601,11 @@ function draw() {
     }
   }
 
+  for (const p of pollens) drawPollen(p);
+  drawOrb(false);
   drawButterfly();
+  drawOrb(true);
+  drawPollenBox();
 
   if (mode === "ready") {
     bigText("Ready?", 170, 56);
@@ -523,6 +645,8 @@ const KNOBS = [
     hint: v => v < 1 ? "Slow drip" : v < 2.5 ? "Normal pour" : "Gushing! 🌊" },
   { label: "☁️ Cloud speed", min: 0, max: 10, step: 0.5, get: () => CLOUD_SPEED, set: v => CLOUD_SPEED = v,
     hint: v => v === 0 ? "Frozen in the sky" : v < 2 ? "Lazy drifting" : v < 5 ? "Windy day 💨" : "Hurricane! 🌪️" },
+  { label: "⭐ Invincible time (seconds)", min: 3, max: 30, step: 1, get: () => POWER_SECONDS, set: v => POWER_SECONDS = v,
+    hint: v => v < 6 ? "Quick sparkle" : v < 15 ? "Normal power-up" : "SUPER long! 🦋✨" },
 ];
 const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
 
