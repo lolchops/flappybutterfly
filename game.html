@@ -105,13 +105,26 @@ function columnWidth(f) { return f.can ? canWidth() : FLOWER_SIZE; }
 //   ☁️ the clouds drift slowly (big clouds are closer, so they go faster),
 //   🌱 the grass slides by under the butterfly,
 //   🌸 and the flowers, right in front, go fastest of all.
-// Each time of day gets its own sky and grass. Sunset and night are coming soon!
+//
+// STEP 8: Time of day! Every 10 flowers you pass, the world slowly
+// changes to the next time of day. Each one has its own sky and land,
+// and the clouds get tinted to match the light.
 const SCENES = {
-  day: { sky: picture("sky-day.png"), grass: picture("grass-day.png") },
+  sunrise: { sky: picture("sky-sunrise.png"), land: picture("land-sunrise.png"), landTop: 0,
+             cloudTint: "rgba(255, 160, 170, 0.22)" },
+  day:     { sky: picture("sky-day.png"), land: picture("grass-day.png"), landTop: 419.6,
+             cloudTint: null },
+  // sunset: coming soon!
+  // night:  coming soon!
 };
-let scene = SCENES.day;
-const GRASS_TOP = 419.6;          // where her horizon line is on the screen
-const GRASS_PARALLAX = 0.6;       // grass moves at 6/10 of the flower speed
+const TIME_OF_DAY = ["sunrise", "day", "sunset", "night"];
+let TIME_CHANGE_EVERY = 10;       // flowers to pass before the time of day changes
+const FADE_FRAMES = 180;          // a change takes 3 seconds (180 pictures)
+let sceneName = TIME_OF_DAY[0];
+let scene = SCENES[sceneName];
+let oldScene = null;              // the scene we're fading away from
+let fade = 1;                     // 0 = just started changing, 1 = all done
+const GRASS_PARALLAX = 0.6;       // the land moves at 6/10 of the flower speed
 const CLOUD_PICS = [picture("cloud-big.png"), picture("cloud-small.png")];
 let clouds = [];
 let grassX = 0;                   // how far the grass has slid
@@ -165,6 +178,7 @@ function restart() {
   bird.y = 300; bird.speed = 0;
   flowers = []; score = 0;
   pollens = []; pollenCount = 0; power = 0;
+  if (sceneName !== TIME_OF_DAY[0]) changeScene(TIME_OF_DAY[0]);   // back to morning
   mode = "ready";
 }
 
@@ -244,6 +258,7 @@ function makeCloud(x) {
 
 function moveBackground() {
   if (mode === "playing") grassX += FLOWER_SPEED * GRASS_PARALLAX;
+  if (fade < 1) fade = Math.min(1, fade + 1 / FADE_FRAMES);
   if (clouds.length === 0 && CLOUD_PICS[0].complete && CLOUD_PICS[0].width) {
     for (let i = 0; i < 4; i++) clouds.push(makeCloud(Math.random() * W));   // fill the sky to start
   }
@@ -292,7 +307,10 @@ function update() {
 
   // 4. Score a point for each pair you get past
   for (const f of flowers) {
-    if (!f.passed && f.x + columnWidth(f) < bird.x) { f.passed = true; score++; }
+    if (!f.passed && f.x + columnWidth(f) < bird.x) {
+      f.passed = true; score++;
+      if (score % TIME_CHANGE_EVERY === 0) nextTimeOfDay();
+    }
   }
 
   // 5. Pollen: slide along with the flowers, and get collected
@@ -550,33 +568,80 @@ function drawPollenBox() {
   pen.restore();
 }
 
-function drawBackground() {
+function changeScene(name) {
+  oldScene = scene;
+  sceneName = name;
+  scene = SCENES[name];
+  fade = 0;
+}
+
+function nextTimeOfDay() {
+  const drawn = TIME_OF_DAY.filter(n => SCENES[n]);   // only the ones she's drawn so far
+  changeScene(drawn[(drawn.indexOf(sceneName) + 1) % drawn.length]);
+}
+
+// Clouds tinted for the time of day (made once, then remembered)
+const tintedClouds = new Map();
+function cloudPicture(pic, tint) {
+  if (!tint) return pic;
+  const key = pic.src + tint;
+  if (!tintedClouds.has(key)) {
+    const c = document.createElement("canvas");
+    c.width = pic.width; c.height = pic.height;
+    const p = c.getContext("2d");
+    p.drawImage(pic, 0, 0);
+    p.globalCompositeOperation = "source-atop";        // only color where the cloud is
+    p.fillStyle = tint;
+    p.fillRect(0, 0, c.width, c.height);
+    tintedClouds.set(key, c);
+  }
+  return tintedClouds.get(key);
+}
+
+// Paints one whole time of day: sky, clouds, and land
+function paintScene(p, sc) {
   // 1. The sky and sun (never moves)
-  if (scene.sky.complete) pen.drawImage(scene.sky, 0, 0, W, H);
+  if (sc.sky.complete) p.drawImage(sc.sky, 0, 0, W, H);
 
   // 2. The clouds
   for (const c of clouds) {
+    if (!c.pic.complete) continue;
     const w = c.pic.width / 2 * c.scale, h = c.pic.height / 2 * c.scale;
-    pen.save();
-    pen.translate(c.x + (c.flip ? w : 0), c.y);
-    if (c.flip) pen.scale(-1, 1);
-    pen.drawImage(c.pic, 0, 0, w, h);
-    pen.restore();
+    p.save();
+    p.translate(c.x + (c.flip ? w : 0), c.y);
+    if (c.flip) p.scale(-1, 1);
+    p.drawImage(cloudPicture(c.pic, sc.cloudTint), 0, 0, w, h);
+    p.restore();
   }
 
-  // 3. The grass. Her drawing is placed over and over, every other copy
+  // 3. The land. Her drawing is placed over and over, every other copy
   //    flipped like a mirror, so the edges always match up perfectly.
-  const g = scene.grass;
+  const g = sc.land;
   if (!g.complete) return;
   const gw = g.width / 2, gh = g.height / 2;
   const offset = grassX % (2 * gw);
   for (let k = 0; k * gw - offset < W; k++) {
     const x = k * gw - offset;
-    pen.save();
-    if (k % 2) { pen.translate(x + gw, 0); pen.scale(-1, 1); } else pen.translate(x, 0);
-    pen.drawImage(g, 0, GRASS_TOP, gw + 0.5, gh);
-    pen.restore();
+    p.save();
+    if (k % 2) { p.translate(x + gw, 0); p.scale(-1, 1); } else p.translate(x, 0);
+    p.drawImage(g, 0, sc.landTop, gw + 0.5, gh);
+    p.restore();
   }
+}
+
+// While the time of day is changing, the computer paints BOTH scenes
+// and slowly fades the new one in on top of the old one.
+const fadeCanvas = document.createElement("canvas");
+fadeCanvas.width = W; fadeCanvas.height = H;
+const fadePen = fadeCanvas.getContext("2d");
+function drawBackground() {
+  if (fade >= 1 || !oldScene) { paintScene(pen, scene); return; }
+  paintScene(pen, oldScene);
+  fadePen.clearRect(0, 0, W, H);
+  paintScene(fadePen, scene);
+  pen.globalAlpha = fade * fade * (3 - 2 * fade);     // starts slow, speeds up, ends slow
+  pen.drawImage(fadeCanvas, 0, 0);
+  pen.globalAlpha = 1;
 }
 
 function draw() {
@@ -647,6 +712,8 @@ const KNOBS = [
     hint: v => v === 0 ? "Frozen in the sky" : v < 2 ? "Lazy drifting" : v < 5 ? "Windy day 💨" : "Hurricane! 🌪️" },
   { label: "⭐ Invincible time (seconds)", min: 3, max: 30, step: 1, get: () => POWER_SECONDS, set: v => POWER_SECONDS = v,
     hint: v => v < 6 ? "Quick sparkle" : v < 15 ? "Normal power-up" : "SUPER long! 🦋✨" },
+  { label: "🌅 Time of day changes every", min: 2, max: 30, step: 1, get: () => TIME_CHANGE_EVERY, set: v => TIME_CHANGE_EVERY = v,
+    hint: v => `${v} flowers` + (v < 6 ? " (super speedy days!)" : v > 20 ? " (looong days)" : "") },
 ];
 const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
 
