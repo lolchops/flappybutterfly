@@ -2,17 +2,33 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- On iPhone: "Add to Home Screen" turns the game into a full-screen app -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Flappy Butterfly">
+<meta name="theme-color" content="#111111">
+<link rel="apple-touch-icon" href="assets/icon.png">
 <title>Our Flappy Game</title>
 <style>
-  body { margin: 0; background: #222; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; color: white; }
-  canvas { background: #7ec8f0; margin-top: 20px; border-radius: 8px; touch-action: none; }
-  #game-area { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 20px; }
-  #game-col { display: flex; flex-direction: column; align-items: center; }
-  #gear { margin-top: 20px; font-size: 18px; padding: 8px 16px; border-radius: 20px; border: none;
-          background: #ffd84d; color: #222; font-weight: bold; cursor: pointer; }
-  #settings { display: none; margin-top: 20px; background: #333; border-radius: 12px; padding: 16px 20px; width: 300px; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111; overscroll-behavior: none; }
+  body { display: flex; align-items: center; justify-content: center; font-family: sans-serif; color: white;
+         touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  body.docked { padding-right: 330px; box-sizing: border-box; }
+  #stage { position: relative; }
+  canvas { display: block; background: #7ec8f0; touch-action: none; }
+  #gear { position: absolute; top: 10px; right: 10px; width: 46px; height: 46px; border-radius: 50%;
+          border: 3px solid black; background: rgba(255, 255, 255, 0.85); font-size: 24px; line-height: 1;
+          padding: 0; cursor: pointer; }
+  #settings { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 330px; box-sizing: border-box;
+              overflow-y: auto; -webkit-overflow-scrolling: touch; background: #2a2a2a; padding: 16px 20px; }
   #settings.open { display: block; }
-  #settings h2 { margin: 0 0 12px; font-size: 22px; }
+  @media (max-width: 759px) { #settings { width: 100%; background: rgba(30, 30, 30, 0.96); } }
+  #settings-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  #settings h2 { margin: 0; font-size: 22px; }
+  #close { font-size: 18px; padding: 6px 14px; border-radius: 20px; border: none; background: #ffd84d;
+           color: #222; font-weight: bold; cursor: pointer; }
   .knob { margin-bottom: 14px; }
   .knob label { display: flex; justify-content: space-between; font-size: 16px; }
   .knob .val { color: #ffd84d; font-weight: bold; }
@@ -23,18 +39,16 @@
 </head>
 <body>
 
-<button id="gear">⚙️ Settings</button>
+<div id="stage">
+  <canvas id="screen" width="400" height="600"></canvas>
+  <button id="gear" aria-label="Settings">⚙️</button>
+</div>
 
-<div id="game-area">
-  <div id="game-col">
-    <canvas id="screen" width="400" height="600"></canvas>
-  </div>
-  <!-- The settings panel: sliders that change the knobs while you play -->
-  <div id="settings">
-    <h2>⚙️ Settings</h2>
-    <div id="knobs"></div>
-    <button id="reset">↩️ Back to normal</button>
-  </div>
+<!-- The settings panel: sliders that change the knobs while you play -->
+<div id="settings">
+  <div id="settings-top"><h2>⚙️ Settings</h2><button id="close">Done</button></div>
+  <div id="knobs"></div>
+  <button id="reset">↩️ Back to normal</button>
 </div>
 
 <script>
@@ -112,7 +126,7 @@ function columnWidth(f) { return f.can ? canWidth() : FLOWER_SIZE; }
 const SCENES = {
   sunrise: { sky: picture("sky-sunrise.png"), land: picture("land-sunrise.png"), landTop: 0,
              cloudTint: "rgba(255, 160, 170, 0.22)" },
-  day:     { sky: picture("sky-day.png"), land: picture("grass-day.png"), landTop: 419.6,
+  day:     { sky: picture("sky-day.png"), land: picture("grass-day.png"), landTop: 419.6, anchorX: 1,
              cloudTint: null },
   sunset:  { sky: picture("sky-sunset.png"), land: picture("land-sunset.png"), landTop: -54.5,
              cloudTint: "rgba(255, 130, 70, 0.3)" },
@@ -162,10 +176,14 @@ let powerMax = 1;
 
 const screen = document.getElementById("screen");
 const pen = screen.getContext("2d");   // the "pen" draws on the screen
-const W = screen.width, H = screen.height;
+// The game world is always 400 wide. On tall screens like phones it gets
+// TALLER (up to 900) so it fills the whole screen instead of leaving empty bars.
+const W = 400;
+let H = 600;
+let PIXELS = 1;           // real screen dots for each game dot (more = sharper)
 
 // The butterfly. The computer remembers where it is and how fast it's moving.
-const bird = { x: 110, y: 300, speed: 0 };
+const bird = { x: 110, y: H / 2, speed: 0 };
 
 let mode = "ready";       // "ready" (waiting to start), "playing", or "over"
 let flowers = [];         // the flowers on the screen right now
@@ -239,7 +257,7 @@ screen.addEventListener("mousedown", press);
 screen.addEventListener("touchstart", e => { e.preventDefault(); press(); });
 
 function restart() {
-  bird.y = 300; bird.speed = 0;
+  bird.y = H / 2; bird.speed = 0;
   flowers = []; score = 0;
   pollens = []; pollenCount = 0; power = 0; crumbs = []; munchTimer = 0;
   if (sceneName !== TIME_OF_DAY[0]) changeScene(TIME_OF_DAY[0]);   // back to morning
@@ -341,7 +359,7 @@ function update() {
   moveBackground();
 
   if (mode === "ready") {
-    bird.y = 300 + Math.sin(clock * 0.08) * 12;   // float gently while waiting
+    bird.y = H / 2 + Math.sin(clock * 0.08) * 12;   // float gently while waiting
     return;
   }
   if (mode === "over") return;
@@ -789,7 +807,7 @@ function cloudPicture(pic, tint) {
 function drawTiled(p, img, scroll, top, extra, onlyExtra) {
   const gw = img.width / 2, gh = img.height / 2;
   const offset = ((scroll % (2 * gw)) + 2 * gw) % (2 * gw);
-  for (let k = 0; k * gw - offset < W; k++) {
+  for (let k = 0; k * gw - offset < BG_W; k++) {
     const x = k * gw - offset;
     p.save();
     if (k % 2) { p.translate(x + gw, 0); p.scale(-1, 1); } else p.translate(x, 0);
@@ -815,15 +833,28 @@ function drawStars(p, sc) {
   });
 }
 
+// Her backgrounds are made for a 400 x 600 screen. On a taller screen the
+// computer zooms them in just enough to cover it (like a photo filling a frame).
+const BG_W = 400, BG_H = 600;
+function paintView(p, sc) {
+  const zoom = H / BG_H;
+  const spare = BG_W * zoom - W;                  // how much sticks out past the sides
+  p.save();
+  p.translate(-spare * (sc.anchorX ?? 0.5), 0);   // which side to keep (the day sun is on the right)
+  p.scale(zoom, zoom);
+  paintScene(p, sc);
+  p.restore();
+}
+
 // Paints one whole time of day: sky, clouds, and land
 function paintScene(p, sc) {
   // 1. The sky. Usually it never moves, but at night the whole starry sky drifts by.
   if (sc.sky.complete) {
     if (sc.skySpeed) {
       drawTiled(p, sc.sky, grassX * sc.skySpeed, 0);
-      if (sc.nightShade) { p.fillStyle = sc.nightShade; p.fillRect(0, 0, W, H); }
+      if (sc.nightShade) { p.fillStyle = sc.nightShade; p.fillRect(0, 0, BG_W, BG_H); }
       if (sc.stars) drawTiled(p, sc.sky, grassX * sc.skySpeed, 0, q => drawStars(q, sc), true);   // stars on top
-    } else p.drawImage(sc.sky, 0, 0, W, H);
+    } else p.drawImage(sc.sky, 0, 0, BG_W, BG_H);
   }
 
   // 2. The clouds
@@ -844,15 +875,15 @@ function paintScene(p, sc) {
 // While the time of day is changing, the computer paints BOTH scenes
 // and slowly fades the new one in on top of the old one.
 const fadeCanvas = document.createElement("canvas");
-fadeCanvas.width = W; fadeCanvas.height = H;
 const fadePen = fadeCanvas.getContext("2d");
 function drawBackground() {
-  if (fade >= 1 || !oldScene) { paintScene(pen, scene); return; }
-  paintScene(pen, oldScene);
+  if (fade >= 1 || !oldScene) { paintView(pen, scene); return; }
+  paintView(pen, oldScene);
+  fadePen.setTransform(PIXELS, 0, 0, PIXELS, 0, 0);
   fadePen.clearRect(0, 0, W, H);
-  paintScene(fadePen, scene);
+  paintView(fadePen, scene);
   pen.globalAlpha = fade * fade * (3 - 2 * fade);     // starts slow, speeds up, ends slow
-  pen.drawImage(fadeCanvas, 0, 0);
+  pen.drawImage(fadeCanvas, 0, 0, W, H);
   pen.globalAlpha = 1;
 }
 
@@ -888,15 +919,15 @@ function draw() {
   drawPollenBox();
 
   if (mode === "ready") {
-    bigText("Ready?", 170, 56);
-    bigText("Press SPACE or tap to fly!", 470, 24);
+    bigText("Ready?", H / 2 - 130, 56);
+    bigText("Press SPACE or tap to fly!", H - 130, 24);
   } else {
     bigText(score, 80, 64);
   }
   if (mode === "over") {
-    bigText("Oh no!", 230, 60);
-    bigText(`Score: ${score}    Best: ${best}`, 290, 28);
-    if (clock - overTime >= 40) bigText("Press SPACE to play again", 470, 24);
+    bigText("Oh no!", H / 2 - 70, 60);
+    bigText(`Score: ${score}    Best: ${best}`, H / 2 - 10, 28);
+    if (clock - overTime >= 40) bigText("Press SPACE or tap to play again", H - 130, 24);
   }
 }
 
@@ -964,10 +995,42 @@ document.getElementById("reset").addEventListener("click", () => {
   KNOBS.forEach((k, i) => { k.set(NORMAL[i]); k.show(); });
   saveKnobs();
 });
-document.getElementById("gear").addEventListener("click", e => {
-  document.getElementById("settings").classList.toggle("open");
-  e.target.blur();   // so SPACE flaps instead of clicking the button again
-});
+// On a big screen the settings sit beside the game, and you can keep playing.
+// On a phone they cover the game, so the game waits until you tap "Done".
+const settingsPanel = document.getElementById("settings");
+let settingsOpen = false;
+function dockedSettings() { return settingsOpen && innerWidth >= 760; }
+function gamePaused() { return settingsOpen && !dockedSettings(); }
+function showSettings(open) {
+  settingsOpen = open;
+  settingsPanel.classList.toggle("open", open);
+  fitScreen();
+}
+document.getElementById("gear").addEventListener("click", e => { showSettings(!settingsOpen); e.currentTarget.blur(); });
+document.getElementById("close").addEventListener("click", e => { showSettings(false); e.currentTarget.blur(); });
+
+// ------------------------------------------------------------
+//  Make the game as big as the screen allows, and extra sharp.
+//  This runs at the start, and again whenever the window changes size
+//  (or the phone turns sideways).
+// ------------------------------------------------------------
+function fitScreen() {
+  document.body.classList.toggle("docked", dockedSettings());
+  const spaceW = innerWidth - (dockedSettings() ? 330 : 0), spaceH = innerHeight;
+  if (mode !== "playing") {           // don't stretch the world in the middle of a game
+    H = Math.round(Math.min(900, Math.max(600, W * spaceH / spaceW)));
+    if (mode === "ready") bird.y = H / 2;
+  }
+  const size = Math.min(spaceW / W, spaceH / H);          // how much to blow it up
+  screen.style.width = Math.floor(W * size) + "px";
+  screen.style.height = Math.floor(H * size) + "px";
+  PIXELS = Math.min(3, size * (window.devicePixelRatio || 1));
+  screen.width = fadeCanvas.width = Math.round(W * PIXELS);
+  screen.height = fadeCanvas.height = Math.round(H * PIXELS);
+  pen.setTransform(PIXELS, 0, 0, PIXELS, 0, 0);           // draw everything bigger
+}
+window.addEventListener("resize", fitScreen);
+fitScreen();
 
 // ------------------------------------------------------------
 //  The game loop: move things in steady 1/60-second steps
@@ -977,7 +1040,7 @@ let lastTime = performance.now(), leftover = 0;
 function gameLoop(now) {
   leftover += Math.min(now - lastTime, 100);
   lastTime = now;
-  while (leftover >= 1000 / 60) { update(); leftover -= 1000 / 60; }
+  while (leftover >= 1000 / 60) { if (!gamePaused()) update(); leftover -= 1000 / 60; }
   draw();
   requestAnimationFrame(gameLoop);
 }
