@@ -148,8 +148,9 @@ const SCENES = {
              nightShade: "rgba(30, 40, 70, 0.15)",   // a bit gloomy
              rain: true },
 };
-let STORM_CHANCE = 0.4;           // each new day has a 4 in 10 chance of being stormy
+let STORM_CHANCE = 0.5;           // each new day has a 50/50 chance of being stormy
 let sunnyDaysInARow = 0;
+let lastDayStormy = false;
 const TIME_OF_DAY = ["sunrise", "day", "sunset", "night"];
 let TIME_CHANGE_EVERY = 10;       // flowers to pass before the time of day changes
 const FADE_FRAMES = 180;          // a change takes 3 seconds (180 pictures)
@@ -261,7 +262,7 @@ function restart() {
   flowers = []; score = 0;
   pollens = []; pollenCount = 0; power = 0; crumbs = []; munchTimer = 0;
   if (sceneName !== TIME_OF_DAY[0]) changeScene(TIME_OF_DAY[0]);   // back to morning
-  sunnyDaysInARow = 0;
+  sunnyDaysInARow = 0; lastDayStormy = false;
   mode = "ready";
 }
 
@@ -736,11 +737,11 @@ function nextTimeOfDay() {
   const now = sceneName === "storm" ? "day" : sceneName;   // a storm takes the place of "day"
   let next = drawn[(drawn.indexOf(now) + 1) % drawn.length];
   if (next === "day") {
-    // Is it a stormy day? The first day of a game is always sunny, storms never
-    // come twice in a row, and after 2 sunny days in a row a storm is sure to come.
-    const stormy = sunnyDaysInARow >= 1 &&
-                   (sunnyDaysInARow >= 2 || Math.random() < STORM_CHANCE);
+    // Is it a stormy day? Even the very first day can be! Storms never come
+    // twice in a row, and after 2 sunny days in a row a storm is sure to come.
+    const stormy = !lastDayStormy && (sunnyDaysInARow >= 2 || Math.random() < STORM_CHANCE);
     if (stormy) { next = "storm"; sunnyDaysInARow = 0; } else sunnyDaysInARow++;
+    lastDayStormy = stormy;
   }
   changeScene(next);
 }
