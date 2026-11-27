@@ -116,7 +116,17 @@ const SCENES = {
              cloudTint: null },
   sunset:  { sky: picture("sky-sunset.png"), land: picture("land-sunset.png"), landTop: -54.5,
              cloudTint: "rgba(255, 130, 70, 0.3)" },
-  // night:  coming soon!
+  // Night has no ground: her whole starry sky slowly scrolls by, and the stars twinkle.
+  night:   { sky: picture("sky-night.png"), skySpeed: 0.25, land: null,
+             cloudTint: "rgba(70, 60, 140, 0.45)",
+             nightShade: "rgba(20, 10, 70, 0.3)",   // a dark blue blanket so the stars shine
+             stars: [   // where each star is in her drawing (game pixels), so it can twinkle
+               { img: picture("star-0.png"), x: 327.3, y: 58.5,  w: 195.5, h: 116.9 },
+               { img: picture("star-1.png"), x: 534.3, y: 227.6, w: 165.8, h: 219.5 },
+               { img: picture("star-2.png"), x: 148.6, y: 300.0, w: 156.2, h: 165.8 },
+               { img: picture("star-4.png"), x: 571.0, y: 475.9, w: 215.2, h: 192.7 },
+               { img: picture("moon-night.png"), x: 298.1, y: 342.9, w: 108.3, h: 235.3, still: true },
+             ] },
 };
 const TIME_OF_DAY = ["sunrise", "day", "sunset", "night"];
 let TIME_CHANGE_EVERY = 10;       // flowers to pass before the time of day changes
@@ -675,10 +685,47 @@ function cloudPicture(pic, tint) {
   return tintedClouds.get(key);
 }
 
+// Draws a picture over and over across the screen, every other copy
+// flipped like a mirror, so the edges always match up perfectly.
+function drawTiled(p, img, scroll, top, extra, onlyExtra) {
+  const gw = img.width / 2, gh = img.height / 2;
+  const offset = ((scroll % (2 * gw)) + 2 * gw) % (2 * gw);
+  for (let k = 0; k * gw - offset < W; k++) {
+    const x = k * gw - offset;
+    p.save();
+    if (k % 2) { p.translate(x + gw, 0); p.scale(-1, 1); } else p.translate(x, 0);
+    if (!onlyExtra) p.drawImage(img, 0, top, gw + 0.5, gh);
+    if (extra) extra(p);
+    p.restore();
+  }
+}
+
+// Twinkle, twinkle: each star softly glows and grows a tiny bit, each at its own time
+function drawStars(p, sc) {
+  sc.stars.forEach((st, i) => {
+    if (!st.img.complete) return;
+    const t = st.still ? 0.3 : 0.5 + 0.5 * Math.sin(clock * 0.05 + i * 1.7);   // the moon just glows
+    const glowR = Math.max(st.w, st.h) * (0.55 + 0.1 * t);
+    const glow = p.createRadialGradient(st.x, st.y, 0, st.x, st.y, glowR);
+    glow.addColorStop(0, `rgba(255, 250, 190, ${0.25 + 0.35 * t})`);
+    glow.addColorStop(1, "rgba(255, 250, 190, 0)");
+    p.fillStyle = glow;
+    p.beginPath(); p.arc(st.x, st.y, glowR, 0, Math.PI * 2); p.fill();
+    const grow = 1 + 0.08 * t;
+    p.drawImage(st.img, st.x - st.w * grow / 2, st.y - st.h * grow / 2, st.w * grow, st.h * grow);
+  });
+}
+
 // Paints one whole time of day: sky, clouds, and land
 function paintScene(p, sc) {
-  // 1. The sky and sun (never moves)
-  if (sc.sky.complete) p.drawImage(sc.sky, 0, 0, W, H);
+  // 1. The sky. Usually it never moves, but at night the whole starry sky drifts by.
+  if (sc.sky.complete) {
+    if (sc.skySpeed) {
+      drawTiled(p, sc.sky, grassX * sc.skySpeed, 0);
+      if (sc.nightShade) { p.fillStyle = sc.nightShade; p.fillRect(0, 0, W, H); }
+      if (sc.stars) drawTiled(p, sc.sky, grassX * sc.skySpeed, 0, q => drawStars(q, sc), true);   // stars on top
+    } else p.drawImage(sc.sky, 0, 0, W, H);
+  }
 
   // 2. The clouds
   for (const c of clouds) {
@@ -691,19 +738,8 @@ function paintScene(p, sc) {
     p.restore();
   }
 
-  // 3. The land. Her drawing is placed over and over, every other copy
-  //    flipped like a mirror, so the edges always match up perfectly.
-  const g = sc.land;
-  if (!g.complete) return;
-  const gw = g.width / 2, gh = g.height / 2;
-  const offset = grassX % (2 * gw);
-  for (let k = 0; k * gw - offset < W; k++) {
-    const x = k * gw - offset;
-    p.save();
-    if (k % 2) { p.translate(x + gw, 0); p.scale(-1, 1); } else p.translate(x, 0);
-    p.drawImage(g, 0, sc.landTop, gw + 0.5, gh);
-    p.restore();
-  }
+  // 3. The land, sliding by underneath
+  if (sc.land && sc.land.complete) drawTiled(p, sc.land, grassX, sc.landTop);
 }
 
 // While the time of day is changing, the computer paints BOTH scenes
