@@ -226,6 +226,26 @@ try {
   }
 } catch (e) { audio = null; }   // no sound on this computer, but the game still works
 
+// iPhone: play sounds even when the silent switch is on (works on newer iPhones)
+try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+
+// Browsers (especially iPhones) only allow sound after a real tap or key press.
+// iPhones count the moment your finger LIFTS, so we unlock sound then too,
+// by waking the sound player up and playing a tiny bit of silence.
+function unlockSound() {
+  if (!audio) return;
+  if (audio.state !== "running") audio.resume();
+  try {
+    const hush = audio.createBufferSource();
+    hush.buffer = audio.createBuffer(1, 1, 22050);
+    hush.connect(audio.destination);
+    hush.start(0);
+  } catch (e) {}
+}
+for (const kind of ["touchend", "pointerup", "click", "keydown"]) {
+  document.addEventListener(kind, unlockSound, true);
+}
+
 function playSound(kind) {
   if (!audio || VOLUME <= 0) return;
   const list = SOUNDS[kind];
@@ -243,7 +263,7 @@ function playSound(kind) {
 //  Pressing SPACE, clicking, or tapping
 // ------------------------------------------------------------
 function press() {
-  if (audio && audio.state === "suspended") audio.resume();   // browsers only allow sound after you press something
+  if (audio && audio.state !== "running") audio.resume();   // browsers only allow sound after you press something
   if (mode === "ready") { mode = "playing"; }
   if (mode === "over") {
     if (clock - overTime < 40) return;   // tiny pause so you don't restart by accident
@@ -1022,6 +1042,7 @@ document.getElementById("close").addEventListener("click", e => { showSettings(f
 function fitScreen() {
   document.body.classList.toggle("docked", dockedSettings());
   const spaceW = innerWidth - (dockedSettings() ? 330 : 0), spaceH = innerHeight;
+  if (spaceW < 50 || spaceH < 50) return;   // the window is hidden or tiny: keep the old size
   if (mode !== "playing") {           // don't stretch the world in the middle of a game
     H = Math.round(Math.min(900, Math.max(600, W * spaceH / spaceW)));
     if (mode === "ready") bird.y = H / 2;
@@ -1043,11 +1064,11 @@ fitScreen();
 // ------------------------------------------------------------
 let lastTime = performance.now(), leftover = 0;
 function gameLoop(now) {
+  requestAnimationFrame(gameLoop);   // ask for the next picture first, so one hiccup can't stop the game
   leftover += Math.min(now - lastTime, 100);
   lastTime = now;
   while (leftover >= 1000 / 60) { if (!gamePaused()) update(); leftover -= 1000 / 60; }
   draw();
-  requestAnimationFrame(gameLoop);
 }
 requestAnimationFrame(gameLoop);
 </script>
