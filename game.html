@@ -157,6 +157,12 @@ let overTime = 0;
 
 let wingTimer = 0, clock = 0, nextBlink = 120, blinkTimer = 0;
 
+// Munching! Where her butterfly's mouth is in the drawing, and how long a snack takes.
+const MOUTH = { x: 443, y: 268, rx: 30, ry: 27 };
+const EAT_FRAMES = 26;    // fly into the mouth, then 3 big bites
+let munchTimer = 0;       // counts down while the mouth is chewing
+let crumbs = [];          // little pollen crumbs that fall while she eats
+
 // ------------------------------------------------------------
 //  Pressing SPACE, clicking, or tapping
 // ------------------------------------------------------------
@@ -177,7 +183,7 @@ screen.addEventListener("touchstart", e => { e.preventDefault(); press(); });
 function restart() {
   bird.y = 300; bird.speed = 0;
   flowers = []; score = 0;
-  pollens = []; pollenCount = 0; power = 0;
+  pollens = []; pollenCount = 0; power = 0; crumbs = []; munchTimer = 0;
   if (sceneName !== TIME_OF_DAY[0]) changeScene(TIME_OF_DAY[0]);   // back to morning
   mode = "ready";
 }
@@ -316,9 +322,18 @@ function update() {
   // 5. Pollen: slide along with the flowers, and get collected
   for (const p of pollens) {
     p.x -= FLOWER_SPEED;
-    if (p.got) { p.got++; continue; }
+    if (p.got) {
+      p.got++;
+      if (p.got % 7 === 0) {                       // CHOMP! a bite, and some crumbs fall
+        const m = mouthSpot();
+        for (let i = 0; i < 5; i++) crumbs.push({ x: m.x + 4, y: m.y, vx: Math.random() * 2 - 0.5, vy: -Math.random() * 2, age: 0 });
+      }
+      continue;
+    }
     if (Math.hypot(p.x - bird.x, p.y - bird.y) < r + POLLEN_W / 2 && power === 0) {
       p.got = 1;
+      p.fromX = p.x; p.fromY = p.y;                // remember where it was, to fly it to the mouth
+      munchTimer = EAT_FRAMES;
       pollenCount++;
       if (pollenCount >= POLLEN_NEEDED) {          // the box is full: SUPER BUTTERFLY!
         pollenCount = 0;
@@ -327,7 +342,10 @@ function update() {
       }
     }
   }
-  pollens = pollens.filter(p => p.x > -POLLEN_W && p.got < 12);
+  pollens = pollens.filter(p => (p.got || p.x > -POLLEN_W) && p.got < EAT_FRAMES);
+  for (const c of crumbs) { c.x += c.vx - FLOWER_SPEED * 0.5; c.y += c.vy; c.vy += 0.25; c.age++; }
+  crumbs = crumbs.filter(c => c.age < 30);
+  if (munchTimer > 0) munchTimer--;
 
   // 6. Crash checks: the ground, then every flower and watering can
   const hitGround = bird.y > H - r;
@@ -433,9 +451,18 @@ function drawCan(f) {
   pen.restore();
 }
 
+// It tips up when flying up, and nose-down when falling
+function birdTilt() { return mode === "ready" ? 0 : Math.max(-0.5, Math.min(0.8, bird.speed * 0.06)); }
+
+// Where the mouth is on the screen right now (the computer turns it with the tilt!)
+function mouthSpot() {
+  const w = BIRD_SIZE * 1.4, h = w * DRAWING_H / DRAWING_W, t = birdTilt();
+  const mx = (MOUTH.x / DRAWING_W - 0.5) * w, my = (MOUTH.y / DRAWING_H - 0.5) * h;
+  return { x: bird.x + mx * Math.cos(t) - my * Math.sin(t), y: bird.y + mx * Math.sin(t) + my * Math.cos(t) };
+}
+
 function drawButterfly() {
-  // It tips up when flying up, and nose-down when falling
-  const tilt = mode === "ready" ? 0 : Math.max(-0.5, Math.min(0.8, bird.speed * 0.06));
+  const tilt = birdTilt();
   const w = BIRD_SIZE * 1.4;
   const h = w * DRAWING_H / DRAWING_W;
 
@@ -482,6 +509,17 @@ function drawButterfly() {
       pen.stroke();
     }
   }
+
+  // Chewing: the mouth shuts and opens, shuts and opens... nom nom nom
+  if (munchTimer > 0 && Math.floor(munchTimer / 4) % 2 === 0) {
+    const mx = (MOUTH.x / DRAWING_W - 0.5) * w, my = (MOUTH.y / DRAWING_H - 0.5) * h;
+    const mrx = MOUTH.rx / DRAWING_W * w, mry = MOUTH.ry / DRAWING_H * h;
+    pen.fillStyle = LID_COLOR;
+    pen.beginPath(); pen.ellipse(mx, my, mrx, mry, 0, 0, Math.PI * 2); pen.fill();
+    pen.strokeStyle = "black";
+    pen.lineWidth = Math.max(1.5, w / 60);
+    pen.beginPath(); pen.ellipse(mx, my - mry * 0.5, mrx * 0.7, mry * 0.6, 0, 0.2 * Math.PI, 0.8 * Math.PI); pen.stroke();
+  }
   pen.restore();
 }
 
@@ -495,16 +533,54 @@ function bigText(text, y, size) {
   pen.fillText(text, W / 2, y);
 }
 
+// A pollen coin waiting to be eaten: bobbing gently, with a soft glow so it's easy to spot
 function drawPollen(p) {
+  if (!POLLEN.complete || p.got) return;
+  const y = p.y + Math.sin(clock * 0.1 + p.x * 0.05) * 4;
+  const glowR = POLLEN_W * (0.75 + 0.08 * Math.sin(clock * 0.15 + p.x));
+  const glow = pen.createRadialGradient(p.x, y, 0, p.x, y, glowR);
+  glow.addColorStop(0, "rgba(255, 255, 200, 0.8)");
+  glow.addColorStop(1, "rgba(255, 255, 200, 0)");
+  pen.fillStyle = glow;
+  pen.beginPath(); pen.arc(p.x, y, glowR, 0, Math.PI * 2); pen.fill();
+  pen.drawImage(POLLEN, p.x - POLLEN_W / 2, y - POLLEN_H / 2, POLLEN_W, POLLEN_H);
+}
+
+// A pollen coin being eaten: it zooms into the mouth, then CHOMP, CHOMP, CHOMP!
+// The computer erases a round bite from the coin each time.
+const biteCanvas = document.createElement("canvas");
+biteCanvas.width = POLLEN_W * 2; biteCanvas.height = Math.ceil(POLLEN_H * 2);
+const bitePen = biteCanvas.getContext("2d");
+function drawEaten(p) {
   if (!POLLEN.complete) return;
-  const grow = 1 + p.got * 0.08;                    // when collected: puff up and fade away
-  const bob = p.got ? -p.got * 2 : Math.sin(clock * 0.1 + p.x * 0.05) * 4;
-  pen.save();
-  pen.globalAlpha = 1 - p.got / 12;
-  pen.translate(p.x, p.y + bob);
-  pen.scale(grow, grow);
-  pen.drawImage(POLLEN, -POLLEN_W / 2, -POLLEN_H / 2, POLLEN_W, POLLEN_H);
-  pen.restore();
+  const m = mouthSpot();
+  const fly = Math.min(1, p.got / 6);               // first 6 pictures: fly to the mouth
+  const ease = fly * (2 - fly);
+  const size = 1 - 0.35 * ease;                     // shrinks a little on the way
+  const x = p.fromX + (m.x + POLLEN_W * 0.5 * size - p.fromX) * ease;
+  const y = p.fromY + (m.y - p.fromY) * ease;
+  const bites = Math.floor(p.got / 7);              // 0, 1, 2, or 3 bites taken
+  const bw = biteCanvas.width, bh = biteCanvas.height;
+  bitePen.globalCompositeOperation = "source-over";
+  bitePen.clearRect(0, 0, bw, bh);
+  bitePen.drawImage(POLLEN, 0, 0, bw, bh);
+  bitePen.globalCompositeOperation = "destination-out";   // erase = take a bite!
+  for (let i = 0; i < bites; i++) {
+    const bx = bw * (0.05 + 0.3 * i), by = bh * [0.45, 0.25, 0.7][i];
+    bitePen.beginPath(); bitePen.arc(bx, by, bw * 0.3, 0, Math.PI * 2); bitePen.fill();
+    bitePen.beginPath(); bitePen.arc(bx + bw * 0.04, by + bh * 0.3, bw * 0.17, 0, Math.PI * 2); bitePen.fill();
+  }
+  const w = POLLEN_W * size, h = POLLEN_H * size;
+  pen.drawImage(biteCanvas, x - w / 2, y - h / 2, w, h);
+}
+
+function drawCrumbs() {
+  pen.fillStyle = "#ffd21f";
+  for (const c of crumbs) {
+    pen.globalAlpha = 1 - c.age / 30;
+    pen.beginPath(); pen.arc(c.x, c.y, 2.5, 0, Math.PI * 2); pen.fill();
+  }
+  pen.globalAlpha = 1;
 }
 
 // The glowing bubble around the butterfly while it's invincible.
@@ -669,6 +745,8 @@ function draw() {
   for (const p of pollens) drawPollen(p);
   drawOrb(false);
   drawButterfly();
+  for (const p of pollens) if (p.got) drawEaten(p);
+  drawCrumbs();
   drawOrb(true);
   drawPollenBox();
 
