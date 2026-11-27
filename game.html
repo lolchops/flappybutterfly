@@ -183,9 +183,47 @@ let munchTimer = 0;       // counts down while the mouth is chewing
 let crumbs = [];          // little pollen crumbs that fall while she eats
 
 // ------------------------------------------------------------
+//  STEP 12: Her sound effects! For each thing that happens, the computer
+//  picks one of her recordings at random, so it doesn't get boring.
+// ------------------------------------------------------------
+const SOUNDS = {
+  flap:  ["flap-high.wav", "flap-low.wav"],     // whoosh!
+  eat:   ["eat-slurp.wav", "eat-yum.wav"],      // munching pollen
+  crash: ["crash-ouch.wav", "crash-ohno.wav"],  // bumping into something
+};
+const SOUND_LOUDNESS = { flap: 0.45, eat: 0.9, crash: 1 };   // flaps happen a lot, so they're quieter
+let VOLUME = 0.8;
+let audio = null;
+const recordings = {};
+try {
+  audio = new AudioContext();
+  for (const list of Object.values(SOUNDS)) for (const file of list) {
+    fetch("assets/sounds/" + file)
+      .then(r => r.arrayBuffer())
+      .then(data => audio.decodeAudioData(data))
+      .then(sound => { recordings[file] = sound; })
+      .catch(() => {});
+  }
+} catch (e) { audio = null; }   // no sound on this computer, but the game still works
+
+function playSound(kind) {
+  if (!audio || VOLUME <= 0) return;
+  const list = SOUNDS[kind];
+  const file = list[Math.floor(Math.random() * list.length)];   // pick one at random
+  if (!recordings[file]) return;
+  const player = audio.createBufferSource();
+  player.buffer = recordings[file];
+  const loudness = audio.createGain();
+  loudness.gain.value = VOLUME * SOUND_LOUDNESS[kind];
+  player.connect(loudness).connect(audio.destination);
+  player.start();
+}
+
+// ------------------------------------------------------------
 //  Pressing SPACE, clicking, or tapping
 // ------------------------------------------------------------
 function press() {
+  if (audio && audio.state === "suspended") audio.resume();   // browsers only allow sound after you press something
   if (mode === "ready") { mode = "playing"; }
   if (mode === "over") {
     if (clock - overTime < 40) return;   // tiny pause so you don't restart by accident
@@ -194,6 +232,7 @@ function press() {
   }
   bird.speed = FLAP_POWER;
   wingTimer = 12;   // one wing flap lasts 12 pictures (1/5 of a second!)
+  playSound("flap");
 }
 document.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); press(); } });
 screen.addEventListener("mousedown", press);
@@ -355,6 +394,7 @@ function update() {
       p.got = 1;
       p.fromX = p.x; p.fromY = p.y;                // remember where it was, to fly it to the mouth
       munchTimer = EAT_FRAMES;
+      playSound("eat");
       pollenCount++;
       if (pollenCount >= POLLEN_NEEDED) {          // the box is full: SUPER BUTTERFLY!
         pollenCount = 0;
@@ -383,10 +423,11 @@ function update() {
   let crashed = hitGround || hitThing;
   if (power > 0) {
     crashed = false;                                // invincible! nothing can hurt you
-    if (hitGround) { bird.y = H - r; bird.speed = FLAP_POWER * 0.9; wingTimer = 12; }   // boing!
+    if (hitGround) { bird.y = H - r; bird.speed = FLAP_POWER * 0.9; wingTimer = 12; playSound("flap"); }   // boing!
     if (power > 1 || !hitThing) power--;            // never run out while inside a flower
   }
   if (crashed) {
+    playSound("crash");
     mode = "over";
     overTime = clock;
     if (score > best) { best = score; try { localStorage.setItem("flappy-best", best); } catch (e) {} }
@@ -890,6 +931,8 @@ const KNOBS = [
     hint: v => `${v} flowers` + (v < 6 ? " (super speedy days!)" : v > 20 ? " (looong days)" : "") },
   { label: "⛈️ Storm chance", min: 0, max: 1, step: 0.1, get: () => STORM_CHANCE, set: v => STORM_CHANCE = v,
     hint: v => v === 0 ? "Only when 2 sunny days in a row" : v < 0.3 ? "Mostly sunny" : v < 0.7 ? "Sometimes stormy" : "Stormy whenever it can! ⚡" },
+  { label: "🔊 Sound volume", min: 0, max: 1, step: 0.1, get: () => VOLUME, set: v => VOLUME = v,
+    hint: v => v === 0 ? "Sound off 🔇" : v < 0.4 ? "Quiet" : v < 0.8 ? "Medium" : "LOUD! 📢" },
 ];
 const NORMAL = KNOBS.map(k => k.get());   // remember the starting numbers for "Back to normal"
 
