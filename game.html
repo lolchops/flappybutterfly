@@ -151,6 +151,7 @@ const SCENES = {
 let STORM_CHANCE = 0.5;           // each new day has a 50/50 chance of being stormy
 let sunnyDaysInARow = 0;
 let lastDayStormy = false;
+let stormsThisGame = 0;
 const TIME_OF_DAY = ["sunrise", "day", "sunset", "night"];
 let TIME_CHANGE_EVERY = 10;       // flowers to pass before the time of day changes
 const FADE_FRAMES = 180;          // a change takes 3 seconds (180 pictures)
@@ -262,7 +263,7 @@ function restart() {
   flowers = []; score = 0;
   pollens = []; pollenCount = 0; power = 0; crumbs = []; munchTimer = 0;
   if (sceneName !== TIME_OF_DAY[0]) changeScene(TIME_OF_DAY[0]);   // back to morning
-  sunnyDaysInARow = 0; lastDayStormy = false;
+  sunnyDaysInARow = 0; lastDayStormy = false; stormsThisGame = 0;
   mode = "ready";
 }
 
@@ -737,10 +738,13 @@ function nextTimeOfDay() {
   const now = sceneName === "storm" ? "day" : sceneName;   // a storm takes the place of "day"
   let next = drawn[(drawn.indexOf(now) + 1) % drawn.length];
   if (next === "day") {
-    // Is it a stormy day? Even the very first day can be! Storms never come
-    // twice in a row, and after 2 sunny days in a row a storm is sure to come.
-    const stormy = !lastDayStormy && (sunnyDaysInARow >= 2 || Math.random() < STORM_CHANCE);
-    if (stormy) { next = "storm"; sunnyDaysInARow = 0; } else sunnyDaysInARow++;
+    // Is it a stormy day? Even the very first day can be! If the first day is
+    // sunny, the second day is ALWAYS a storm (so every game gets one by 50 points).
+    // After that: storms never come twice in a row, and 2 sunny days in a row
+    // means a storm is sure to come.
+    const firstStormDue = stormsThisGame === 0 && sunnyDaysInARow >= 1;
+    const stormy = !lastDayStormy && (firstStormDue || sunnyDaysInARow >= 2 || Math.random() < STORM_CHANCE);
+    if (stormy) { next = "storm"; sunnyDaysInARow = 0; stormsThisGame++; } else sunnyDaysInARow++;
     lastDayStormy = stormy;
   }
   changeScene(next);
@@ -962,7 +966,7 @@ const KNOBS = [
   { label: "🌅 Time of day changes every", min: 2, max: 30, step: 1, get: () => TIME_CHANGE_EVERY, set: v => TIME_CHANGE_EVERY = v,
     hint: v => `${v} flowers` + (v < 6 ? " (super speedy days!)" : v > 20 ? " (looong days)" : "") },
   { label: "⛈️ Storm chance", min: 0, max: 1, step: 0.1, get: () => STORM_CHANCE, set: v => STORM_CHANCE = v,
-    hint: v => v === 0 ? "Only when 2 sunny days in a row" : v < 0.3 ? "Mostly sunny" : v < 0.7 ? "Sometimes stormy" : "Stormy whenever it can! ⚡" },
+    hint: v => v === 0 ? "Only the sure-thing storms (by 50 points)" : v < 0.3 ? "Mostly sunny" : v < 0.7 ? "Sometimes stormy" : "Stormy whenever it can! ⚡" },
   { label: "🔊 Sound volume", min: 0, max: 1, step: 0.1, get: () => VOLUME, set: v => VOLUME = v,
     hint: v => v === 0 ? "Sound off 🔇" : v < 0.4 ? "Quiet" : v < 0.8 ? "Medium" : "LOUD! 📢" },
 ];
